@@ -84,20 +84,23 @@ invoke() {
     pool_hit=$(jq -r --arg t "$tag" '.backends.pool[$t].backend // empty' "$CONFIG")
   fi
   if [ -n "$pool_hit" ]; then
-    # named pool preset: own backend/model/danger/readonly
+    # named pool preset: own backend/model/effort/danger/readonly
     backend="$pool_hit"
     model=$(jq -r --arg t "$tag" '.backends.pool[$t].model // empty' "$CONFIG")
+    effort=$(jq -r --arg t "$tag" '.backends.pool[$t].effort // empty' "$CONFIG")
     ro=$(jq -r --arg t "$tag" '.backends.pool[$t].readonly // false' "$CONFIG")
     danger=$(jq -r --arg t "$tag" '.backends.pool[$t].danger // false' "$CONFIG")
   elif [ -n "$tag" ]; then
-    # bare backend id override: swap backend, keep role's model/danger/readonly
+    # bare backend id override: swap backend, keep role's model/effort/danger/readonly
     backend="$tag"
     model=$(cfg ".backends.$role.model // empty")
+    effort=$(cfg ".backends.$role.effort // empty")
     ro=$(cfg ".backends.$role.readonly // false")
     danger=$(cfg ".backends.$role.danger // false")
   else
     backend=$(cfg ".backends.$role.backend")
     model=$(cfg ".backends.$role.model // empty")
+    effort=$(cfg ".backends.$role.effort // empty")
     ro=$(cfg ".backends.$role.readonly // false")
     danger=$(cfg ".backends.$role.danger // false")
   fi
@@ -120,6 +123,9 @@ invoke() {
     codex)
       if [ "$ro" = "true" ]; then sb="read-only"; else sb="workspace-write"; fi
       set -- exec "$(cat "$prompt_file")" --json -s "$sb" -o "$outdir/last.txt" --skip-git-repo-check
+      [ -n "$model" ] && set -- "$@" -m "$model"
+      # reasoning-effort tiering (e.g. xhigh planner / medium executor on the same model)
+      [ -n "$effort" ] && set -- "$@" -c "model_reasoning_effort=\"$effort\""
       [ "$danger" = "true" ] && set -- "$@" --dangerously-bypass-approvals-and-sandbox
       run_with_timeout "$tmo" codex "$@" < /dev/null > "$so" 2> "$se"
       rc=$?
@@ -154,6 +160,7 @@ invoke() {
       elif [ "$danger" = "true" ]; then set -- "$@" --allow-all
       else set -- "$@" --allow-all-tools; fi
       [ -n "$model" ] && set -- "$@" --model "$model"
+      [ -n "$effort" ] && set -- "$@" --reasoning-effort "$effort"
       run_with_timeout "$tmo" copilot "$@" < /dev/null > "$so" 2> "$se"
       rc=$?
       ;;
@@ -203,6 +210,7 @@ invoke() {
       if [ "$ro" = "true" ]; then set -- "$@" --trust-tools=fs_read
       else set -- "$@" --trust-all-tools; fi
       [ -n "$model" ] && set -- "$@" --model "$model"
+      [ -n "$effort" ] && set -- "$@" --effort "$effort"
       set -- "$@" "$(cat "$prompt_file")"
       run_with_timeout "$tmo" kiro-cli "$@" < /dev/null > "$so" 2> "$se"
       rc=$?

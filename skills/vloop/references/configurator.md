@@ -29,6 +29,21 @@ Only offer installed backends as options. If <2 backends installed, warn: judge 
 
 The `pool.hard` preset lets the planner tag genuinely hard tasks `[agent: hard]` to run on the strong model while routine tasks stay on the cheap executor. Economics note from research: cheapest model ≠ cheapest run (weak models cost more via 2-3× turn counts) — the tiered split pays off when most tasks are routine.
 
+**Codex variant ("codex-tiered")** — same idea, tiered by reasoning effort instead of model (roles support an optional `effort` field; adapter maps it to codex `-c model_reasoning_effort`, copilot `--reasoning-effort`, kiro-cli `--effort`; other backends ignore it):
+
+```json
+"backends": {
+  "planner":  { "backend": "codex", "model": "gpt-5.5", "effort": "xhigh" },
+  "executor": { "backend": "codex", "model": "gpt-5.5", "effort": "medium" },
+  "judge":    { "backend": "codex", "model": "gpt-5.5", "effort": "xhigh", "readonly": true },
+  "pool": {
+    "claude-exec": { "backend": "claude", "model": "claude-sonnet-5" }
+  }
+}
+```
+
+Pool entries may point at a *different backend entirely* — here a codex-planned loop can still route individual tasks to claude via `[agent: claude-exec]`. Mixing vendors inside one loop is first-class, not a hack.
+
 ## Round 1 — 闭环形态 (≤5 questions, multiple choice)
 
 1. **验收来源** — A. 已有 PRD/spec 文件（给路径） B. 现场访谈生成 PRD（追加一轮 3-5 问的 PRD 访谈，snarktank 风格） C. GOAL.md 标量指标型（要求用户定义指标计算命令；警告 Goodhart 风险：指标计算器必须是 agent 不可修改的文件，列入 gates）
