@@ -1,0 +1,8 @@
+{
+  "_comment": "USD per 1M tokens; used by the cost ledger for backends that report tokens but not dollars. Edit to match your contracts. Entries: [input, output].",
+  "claude": { "native_usd": true },
+  "codex": { "gpt-5.2": [1.75, 14.0], "default": [1.75, 14.0] },
+  "gemini": { "gemini-3-pro": [2.0, 12.0], "default": [2.0, 12.0] },
+  "opencode": { "default_per_minute_estimate_usd": 0.15 },
+  "aider": { "default_per_minute_estimate_usd": 0.15 }
+}

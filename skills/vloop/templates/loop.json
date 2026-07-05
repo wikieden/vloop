@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "project": "CHANGE_ME",
+  "mode": "A",
+  "isolation": { "type": "worktree", "branch": "vloop/CHANGE_ME", "path": "" },
+  "backends": {
+    "executor": { "backend": "claude", "model": "", "danger": false },
+    "judge": { "backend": "codex", "readonly": true },
+    "planner": { "backend": "claude", "model": "" }
+  },
+  "gates": [
+    { "name": "test", "cmd": "CHANGE_ME e.g. npm test" }
+  ],
+  "caps": {
+    "max_iterations": 30,
+    "max_redesign_rounds": 3,
+    "budget_usd": 20,
+    "iteration_timeout_s": 1800
+  },
+  "l3_gates": {
+    "action_classes": true,
+    "milestone": true,
+    "timed_pause_hours": 2,
+    "on_escalation": true
+  },
+  "resume_strategy": "fresh",
+  "notify": { "type": "none", "target": "" }
+}

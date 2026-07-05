@@ -1,0 +1,19 @@
+{
+  "feature": "CHANGE_ME",
+  "source": "path/to/PRD.md or 'interview'",
+  "stories": [
+    {
+      "id": "S1",
+      "title": "CHANGE_ME user-visible outcome",
+      "priority": 1,
+      "passes": false,
+      "acceptanceCriteria": [
+        {
+          "id": "S1C1",
+          "text": "CHANGE_ME — must be falsifiable, e.g. 'clicking Delete shows a confirmation dialog; Cancel leaves the record intact'",
+          "verify_hint": "npm test -- delete-flow / or manual browser step"
+        }
+      ]
+    }
+  ]
+}

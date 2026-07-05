@@ -1,0 +1,10 @@
+# vloop runtime state (never track — a committed state.json corrupts loop counters)
+.vloop/
+
+# session/tool state
+.omc/
+.mock/
+.claude/settings.local.json
+
+# OS
+.DS_Store
