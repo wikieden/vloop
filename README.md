@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-A loop-engineering skill that runs AI coding agents in nested closed loops. 12 supported backends: **claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid (Factory) · amp · qwen (Qwen Code) · goose · kiro-cli** — every adapter verified against the live CLI or current official docs, with capability probing at setup time (flags drift fast).
+A loop-engineering skill that runs AI coding agents in nested closed loops. Ships as a standard [Agent Skill](https://agentskills.io) (SKILL.md) — install once, works across **40+ hosts**. 12 supported loop backends: **claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid (Factory) · amp · qwen (Qwen Code) · goose · kiro-cli**.
 
 ```
 L3 Human loop        review branch / update requirements (PRD) / roll back
@@ -23,6 +23,64 @@ L1 Execute loop      one task per fresh-context iteration → backpressure gates
 
 Design distilled from the Ralph technique (ghuntley), six open-source loop implementations analyzed at source level, HN practitioner consensus, and locally verified headless-CLI adapter mechanics. Full research digest in [docs/RESEARCH.md](docs/RESEARCH.md) (Chinese; sources are English).
 
+## Install
+
+```bash
+# recommended: one command, installs into every host detected on your machine
+npx vloop-skill install
+
+# what it does:
+#   canonical copy -> ~/.agents/skills/vloop   (codex/cursor/gemini/copilot/opencode/
+#                                               goose/crush/amp read this natively)
+#   + symlinks     -> ~/.claude/skills, ~/.zcode/skills, ~/.kiro/skills,
+#                     ~/.factory/skills, ~/.gemini/antigravity/skills, ~/.qwen/skills, …
+#                     (only for hosts actually detected)
+
+npx vloop-skill doctor       # verify deps (jq/python3/git), hosts, loop backends
+npx vloop-skill uninstall    # clean removal (tracked by its own manifest)
+```
+
+Alternatives:
+```bash
+npx skills add wikieden/vloop        # the ecosystem installer (vercel-labs/skills, 70+ agents)
+npx github:wikieden/vloop install    # run the installer straight from GitHub, no npm publish needed
+```
+
+Project-scoped instead of global: add `--project` (writes to `.agents/skills/` and `.claude/skills/` in the current repo instead of your home dir).
+
+Runtime deps for the loop orchestrator itself: `bash`, `git`, `jq`, `python3`, plus whichever backend CLIs you configure in `loop.json`.
+
+### Use without any agent host (pure CLI)
+
+Mode B needs no host at all — just the npm package and your chosen backend CLIs:
+```bash
+npx vloop-skill init   # scaffold .vloop/loop.json + prd.json templates in the current repo
+# edit them (or copy from skills/vloop/templates/), then:
+npx vloop-skill run    # unattended 3-layer loop; exit code 42 = awaiting human review
+```
+
+## Usage by agent
+
+Once installed, every host loads the same `SKILL.md`; only the *invocation syntax* differs. Core commands regardless of host: `setup` (bounded Q&A configurator) · `run` (Mode A, observable) · `run --unattended` (Mode B, background) · `resume` (after human review) · `status` · `cancel`.
+
+| Host | Invoke | Notes |
+|---|---|---|
+| **Claude Code** | `/vloop setup`, `/vloop run`, … | Native slash-command skill invocation. |
+| **Codex CLI** | `$vloop setup` (or let it auto-trigger on mention) | Reads `~/.agents/skills` natively; skill picker via `/skills`. |
+| **OpenCode** | mention "vloop" / "loop engineering" in a message | Skills are tool-invoked (`skill({name:"vloop"})`), not slash commands — the agent calls it when relevant; you can also say "use the vloop skill". |
+| **Cursor (CLI/IDE)** | `/vloop setup` | Native slash-command; also auto-triggers on description match. |
+| **Gemini CLI** | mention "vloop" or run `/skills list` then reference it | Activated via the `activate_skill` tool with per-activation consent, not a slash command. |
+| **GitHub Copilot CLI** | `/vloop setup` | Slash-command style, same as Claude Code. |
+| **Factory droid** | `/vloop setup` | Skills merged with custom commands — same `/name` UX. |
+| **goose** | mention "vloop" in your instruction, or `goose run -t "use vloop to ..."` | No slash command; the built-in `skills` extension surfaces it by description. Check with `goose skills list`. |
+| **Kiro / kiro-cli** | `/vloop setup` or `$vloop` | Auto-activates by description too; `/context show` lists loaded skills. |
+| **ZCode** (Z.ai desktop ADE) | type `$vloop setup` in chat, or open the `/` Commands+Skills panel | One-time: Settings → Skills → Refresh after install. |
+| **Antigravity** | mention "vloop" or pick it from the Agent Manager | Consent-gated auto-activation, like Gemini CLI. |
+| **amp, crush, qwen, aider, opencode-derivatives, …** | mention "vloop" / "loop engineering" | Any host that reads `~/.agents/skills` picks it up by description match; there is no separate per-host doc to maintain. |
+| **No host — pure CLI** | `npx vloop-skill init && npx vloop-skill run` | See above. |
+
+If a host doesn't show the skill after install, run `npx vloop-skill doctor` — it reports which hosts were detected and whether their link exists.
+
 ## Layout
 
 | Path | Contents |
@@ -33,44 +91,9 @@ Design distilled from the Ralph technique (ghuntley), six open-source loop imple
 | skills/vloop/references/ | configurator (bounded Q&A wizard) · loop-protocol (L1/L2/L3 playbook) · adapters (multi-backend matrix) · pitfalls (guardrail checklist) |
 | skills/vloop/templates/ | loop.json · prd.json · plan.md · AGENT.md · pricing.json · role prompt templates |
 | skills/vloop/scripts/ | vloop.sh (unattended orchestrator) · adapter.sh (backend invocation + normalization + cost ledger) |
+| bin/vloop-skill.js | npx installer: install / uninstall / doctor / init / run |
 
-## Install
-
-vloop is a standard [Agent Skill](https://agentskills.io) (SKILL.md) — it installs once and works in **any of the 40+ hosts** that read the format: Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, droid, goose, crush, amp, Kiro, ZCode, Antigravity, Trae, Windsurf, …
-
-```bash
-# recommended: one command, all detected hosts
-npx vloop-skill install
-
-# what it does:
-#   canonical copy -> ~/.agents/skills/vloop   (codex/cursor/gemini/copilot/opencode/
-#                                               goose/crush/amp read this natively)
-#   + symlinks     -> ~/.claude/skills, ~/.zcode/skills, ~/.kiro/skills,
-#                     ~/.factory/skills, ~/.gemini/antigravity/skills, ~/.qwen/skills, …
-#                     (only for hosts detected on your machine)
-
-npx vloop-skill doctor       # verify deps (jq/python3/git), hosts, loop backends
-npx vloop-skill uninstall    # clean removal (tracked by its own manifest)
-```
-
-Alternatives:
-```bash
-npx skills add wikieden/vloop        # the ecosystem installer (vercel-labs/skills, 70+ agents)
-npx github:wikieden/vloop install    # run the installer straight from GitHub, no npm needed
-```
-
-Runtime deps for the loop orchestrator: `bash`, `git`, `jq`, `python3`, plus whichever backend CLIs you configure.
-
-### Use without any host (pure CLI)
-
-Mode B needs no agent host at all:
-```bash
-npx vloop-skill init   # scaffold .vloop/loop.json + prd.json templates
-# edit them, then:
-npx vloop-skill run    # unattended 3-layer loop; exit 42 = awaiting human review
-```
-
-## Usage
+## Command reference
 
 ```
 /vloop setup            # bounded Q&A configurator (≤5 multiple-choice questions × 2 rounds)
@@ -81,6 +104,8 @@ npx vloop-skill run    # unattended 3-layer loop; exit 42 = awaiting human revie
 /vloop status | cancel
 ```
 
+Replace `/vloop` with your host's invocation style from the table above — the underlying protocol is identical everywhere.
+
 The configurator interviews you with lettered options (answer compactly: "1A 2C"), detects installed backends and gates, and refuses to start without every cap set — an unbounded loop is a config error, not a preference.
 
 ## Verified
@@ -88,6 +113,7 @@ The configurator interviews you with lettered options (answer compactly: "1A 2C"
 - End-to-end mock test (shim backends): L1 commit ratchet + task ticking → L2 read-only judge verdict extraction + `passes` ratchet → L3 pause artifact (`AWAITING_HUMAN.md` with cost ledger, commits, lettered questions) + exit 42 ✓
 - Failure paths: gate-failure rollback, invalid verdict counted as failed iteration, breaker trip 1 → replan, trip 2 → L3 escalation ✓
 - Cross-backend cost ledger (claude native USD + token-priced backends) ✓
+- Installer lifecycle (fake-HOME install/link/doctor/uninstall), `npm pack` contents, `npx github:wikieden/vloop` direct-from-GitHub install ✓
 - bash 3.2 compatible (macOS default shell) ✓
 
 ## License
