@@ -1,8 +1,15 @@
 {
-  "_comment": "USD per 1M tokens; used by the cost ledger for backends that report tokens but not dollars. Edit to match your contracts. Entries: [input, output].",
+  "_comment": "USD per 1M tokens; used by the cost ledger for backends that report tokens but not dollars. Edit to match your contracts. Entries: [input, output]. Backends reporting neither dollars nor tokens fall back to per-minute wall-time estimates.",
   "claude": { "native_usd": true },
   "codex": { "gpt-5.2": [1.75, 14.0], "default": [1.75, 14.0] },
   "gemini": { "gemini-3-pro": [2.0, 12.0], "default": [2.0, 12.0] },
+  "qwen": { "default": [0.8, 4.0] },
+  "droid": { "default_per_minute_estimate_usd": 0.2 },
+  "amp": { "default_per_minute_estimate_usd": 0.25 },
+  "copilot": { "default_per_minute_estimate_usd": 0.1 },
+  "cursor-agent": { "default_per_minute_estimate_usd": 0.2 },
+  "goose": { "default_per_minute_estimate_usd": 0.15 },
+  "kiro-cli": { "default_per_minute_estimate_usd": 0.1 },
   "opencode": { "default_per_minute_estimate_usd": 0.15 },
   "aider": { "default_per_minute_estimate_usd": 0.15 }
 }

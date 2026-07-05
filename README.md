@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-A loop-engineering skill that runs AI coding agents in nested closed loops, with multi-backend support (claude / codex / opencode / gemini / aider):
+A loop-engineering skill that runs AI coding agents in nested closed loops. 12 supported backends: **claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid (Factory) · amp · qwen (Qwen Code) · goose · kiro-cli** — every adapter verified against the live CLI or current official docs, with capability probing at setup time (flags drift fast).
 
 ```
 L3 Human loop        review branch / update requirements (PRD) / roll back

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-支持多种 agent CLI（claude / codex / opencode / gemini / aider）的循环工程 skill。三层闭环：
+支持 12 种 agent CLI 的循环工程 skill：**claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid (Factory) · amp · qwen (通义千问 Code) · goose · kiro-cli** —— 每个适配都经本机实测或官方文档核实，配置时做能力探测（flags 漂移快）。三层闭环：
 
 ```
 L3 人类闭环      review 分支 / 改需求(PRD) / 打回     ← 唯一能改需求、批准不可逆动作的层

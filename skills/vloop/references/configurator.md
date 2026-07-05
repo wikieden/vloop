@@ -7,7 +7,7 @@ In interactive Claude Code sessions use **AskUserQuestion** (one call per round,
 ## Step 0 — Detect environment (before asking anything)
 
 ```bash
-for cli in claude codex opencode gemini aider; do command -v $cli >/dev/null && echo "$cli: $($cli --version 2>/dev/null | head -1)"; done
+for cli in claude codex opencode gemini aider copilot cursor-agent droid amp qwen goose kiro-cli; do command -v $cli >/dev/null && echo "$cli: $($cli --version 2>/dev/null | head -1)"; done
 git rev-parse --is-inside-work-tree 2>/dev/null   # not a repo → offer git init (required)
 ls package.json Makefile Cargo.toml pyproject.toml 2>/dev/null   # gate auto-detection hints
 ```
@@ -18,7 +18,7 @@ Only offer installed backends as options. If <2 backends installed, warn: judge 
 
 1. **验收来源** — A. 已有 PRD/spec 文件（给路径） B. 现场访谈生成 PRD（追加一轮 3-5 问的 PRD 访谈，snarktank 风格） C. GOAL.md 标量指标型（要求用户定义指标计算命令；警告 Goodhart 风险：指标计算器必须是 agent 不可修改的文件，列入 gates）
 2. **Executor backend** — 探测到的 CLI 列表 + 模型选择
-3. **Judge backend** — 探测到的列表（默认预选 ≠ executor 的最强者）+ D. 厂商评审器（codex exec review）
+3. **Judge backend** — 探测到的列表（默认预选 ≠ executor 的最强者）+ D. 厂商评审器（codex exec review）。**只有具备只读模式的 backend 可当 judge**：claude / codex / gemini / qwen / copilot / cursor-agent / droid / kiro-cli / opencode(--agent plan)。amp / goose / aider 无只读模式，不得列为 judge 选项。
 4. **反压门 (gates)** — A. 自动探测（package.json scripts.test/lint/build、Makefile、cargo check/test） B. 手填命令数组 C. aider 微循环托管（仅 executor=aider）。探测结果必须回显给用户确认。
 5. **运行模式** — A. 会话内 Mode A（可观察、首跑推荐） B. 无人值守 Mode B（过夜/systemd）
 

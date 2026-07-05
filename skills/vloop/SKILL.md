@@ -1,6 +1,6 @@
 ---
 name: vloop
-description: Three-layer closed-loop engineering for AI coding agents — L1 plan-execute loop, L2 product-acceptance/redesign loop, L3 human review/requirement-update loop, with multi-backend support (claude/codex/opencode/gemini/aider). Use when the user wants to set up, run, resume, or cancel an autonomous coding loop, mentions "vloop", "loop engineering", "ralph", overnight agent runs, or wants an agent to work through a PRD/plan with acceptance gates.
+description: Three-layer closed-loop engineering for AI coding agents — L1 plan-execute loop, L2 product-acceptance/redesign loop, L3 human review/requirement-update loop, with 12 backends (claude/codex/opencode/gemini/aider/copilot/cursor-agent/droid/amp/qwen/goose/kiro-cli). Use when the user wants to set up, run, resume, or cancel an autonomous coding loop, mentions "vloop", "loop engineering", "ralph", overnight agent runs, or wants an agent to work through a PRD/plan with acceptance gates.
 ---
 
 # vloop — 三层闭环 Loop Engineering

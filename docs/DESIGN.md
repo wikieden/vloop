@@ -1,6 +1,6 @@
 # vloop — 三层闭环 Loop Engineering Skill 设计
 
-> 支持多种 agent CLI（claude / codex / opencode / gemini / aider）的循环工程 skill。
+> 支持 12 种 agent CLI（claude / codex / opencode / gemini / aider / copilot / cursor-agent / droid / amp / qwen / goose / kiro-cli）的循环工程 skill。
 > 三层闭环：L1 计划执行 → L2 产品验收重设计 → L3 人类 review 与需求更新。
 > 设计依据见 [RESEARCH.md](RESEARCH.md)。
 

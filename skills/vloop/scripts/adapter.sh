@@ -46,6 +46,20 @@ probe() {
         cap='{"json_output":true,"schema_output":false,"budget_cap":false,"turn_cap":"exit53","resume":true,"readonly_mode":"--approval-mode plan","danger_flag":"--yolo"}' ;;
       aider)
         cap='{"json_output":false,"schema_output":false,"budget_cap":false,"turn_cap":false,"resume":false,"readonly_mode":null,"danger_flag":"--yes-always"}' ;;
+      copilot)
+        cap='{"json_output":"jsonl","schema_output":false,"budget_cap":false,"turn_cap":false,"resume":true,"readonly_mode":"--plan","danger_flag":"--allow-all"}' ;;
+      cursor-agent)
+        cap='{"json_output":true,"schema_output":false,"budget_cap":false,"turn_cap":false,"resume":true,"readonly_mode":"--mode plan","danger_flag":"--force"}' ;;
+      droid)
+        cap='{"json_output":true,"schema_output":false,"budget_cap":false,"turn_cap":false,"resume":true,"readonly_mode":"default (no --auto)","danger_flag":"--skip-permissions-unsafe"}' ;;
+      amp)
+        cap='{"json_output":"jsonl","schema_output":false,"budget_cap":false,"turn_cap":false,"resume":true,"readonly_mode":null,"danger_flag":"--dangerously-allow-all"}' ;;
+      qwen)
+        cap='{"json_output":true,"schema_output":true,"budget_cap":"--max-wall-time","turn_cap":"--max-session-turns","resume":true,"readonly_mode":"--approval-mode plan","danger_flag":"--yolo"}' ;;
+      goose)
+        cap='{"json_output":true,"schema_output":false,"budget_cap":false,"turn_cap":"--max-turns","resume":false,"readonly_mode":null,"danger_flag":"GOOSE_MODE=auto"}' ;;
+      kiro-cli)
+        cap='{"json_output":false,"schema_output":false,"budget_cap":false,"turn_cap":false,"resume":true,"readonly_mode":"--trust-tools=fs_read","danger_flag":"--trust-all-tools"}' ;;
       *) cap='{"json_output":false}' ;;
     esac
     jq --arg b "$b" --arg v "$ver" --argjson c "$cap" '.[$b] = ($c + {version:$v})' "$tmp" > "$tmp.2" && mv "$tmp.2" "$tmp"
@@ -111,6 +125,66 @@ invoke() {
       run_with_timeout "$tmo" aider "$@" < /dev/null > "$so" 2> "$se"
       rc=$?
       ;;
+    copilot)
+      # -s: only agent response; --no-ask-user: never block on questions (unattended)
+      set -- -p "$(cat "$prompt_file")" -s --no-ask-user
+      if [ "$ro" = "true" ]; then set -- "$@" --plan --allow-all-tools
+      elif [ "$danger" = "true" ]; then set -- "$@" --allow-all
+      else set -- "$@" --allow-all-tools; fi
+      [ -n "$model" ] && set -- "$@" --model "$model"
+      run_with_timeout "$tmo" copilot "$@" < /dev/null > "$so" 2> "$se"
+      rc=$?
+      ;;
+    cursor-agent)
+      # --trust required in headless (skips workspace-trust prompt)
+      set -- "$(cat "$prompt_file")" -p --output-format text --trust
+      if [ "$ro" = "true" ]; then set -- "$@" --mode plan
+      else set -- "$@" --force; fi
+      [ -n "$model" ] && set -- "$@" --model "$model"
+      run_with_timeout "$tmo" cursor-agent "$@" < /dev/null > "$so" 2> "$se"
+      rc=$?
+      ;;
+    droid)
+      # no --auto flag = read-only spec mode (native judge); medium = edits+builds+local git
+      set -- exec -f "$prompt_file" -o json
+      if [ "$ro" = "true" ]; then :
+      elif [ "$danger" = "true" ]; then set -- "$@" --skip-permissions-unsafe
+      else set -- "$@" --auto medium; fi
+      [ -n "$model" ] && set -- "$@" -m "$model"
+      run_with_timeout "$tmo" droid "$@" < /dev/null > "$so" 2> "$se"
+      rc=$?
+      ;;
+    amp)
+      # -x with no arg reads prompt from stdin; stream-json is Claude-Code-compatible JSONL
+      set -- -x --stream-json --no-archive-after-execute
+      [ "$danger" = "true" ] && set -- "$@" --dangerously-allow-all
+      run_with_timeout "$tmo" amp "$@" < "$prompt_file" > "$so" 2> "$se"
+      rc=$?
+      ;;
+    qwen)
+      # non-TTY stdin triggers headless; native turn cap; exit 53=turns 55=budget
+      if [ "$ro" = "true" ]; then am="plan"; elif [ "$danger" = "true" ]; then am="yolo"; else am="auto"; fi
+      set -- --approval-mode "$am" --output-format json --max-session-turns 50
+      [ -n "$model" ] && set -- "$@" -m "$model"
+      run_with_timeout "$tmo" qwen "$@" < "$prompt_file" > "$so" 2> "$se"
+      rc=$?
+      ;;
+    goose)
+      # approvals via GOOSE_MODE env; native anti-loop caps; -q = response only
+      set -- run -i "$prompt_file" --no-session -q --max-turns 40 --max-tool-repetitions 5
+      [ -n "$model" ] && set -- "$@" --model "$model"
+      GOOSE_MODE=auto run_with_timeout "$tmo" goose "$@" < /dev/null > "$so" 2> "$se"
+      rc=$?
+      ;;
+    kiro-cli)
+      set -- chat --no-interactive
+      if [ "$ro" = "true" ]; then set -- "$@" --trust-tools=fs_read
+      else set -- "$@" --trust-all-tools; fi
+      [ -n "$model" ] && set -- "$@" --model "$model"
+      set -- "$@" "$(cat "$prompt_file")"
+      run_with_timeout "$tmo" kiro-cli "$@" < /dev/null > "$so" 2> "$se"
+      rc=$?
+      ;;
     *) die "unknown backend: $backend" ;;
   esac
 
@@ -136,6 +210,38 @@ try:
         j = json.loads(so)
         n.update(result_text=j.get("result",""), session_id=j.get("session_id"),
                  cost_usd=j.get("total_cost_usd"), is_error=bool(j.get("is_error")) or rc != 0)
+    elif b == "droid":
+        # single Claude-style result object: {type:result, result, session_id, is_error, num_turns}
+        j = json.loads(so)
+        n.update(result_text=j.get("result",""), session_id=j.get("session_id"),
+                 is_error=bool(j.get("is_error")) or rc != 0)
+    elif b == "amp":
+        # Claude-Code-compatible stream-JSON (JSONL on stdout)
+        for line in so.splitlines():
+            line = line.strip()
+            if not line.startswith("{"): continue
+            try: ev = json.loads(line)
+            except ValueError: continue
+            t = ev.get("type","")
+            if t == "system": n["session_id"] = ev.get("session_id") or n["session_id"]
+            elif t == "assistant":
+                for blk in (ev.get("message") or {}).get("content",[]) or []:
+                    if blk.get("type") == "text": n["result_text"] += blk.get("text","")
+            elif t == "result":
+                if ev.get("result"): n["result_text"] = ev["result"]
+                if ev.get("is_error"): n["is_error"] = True
+    elif b == "qwen":
+        # buffered JSON array of Claude-style messages; final answer in the result message
+        arr = json.loads(so)
+        for ev in (arr if isinstance(arr, list) else [arr]):
+            t = ev.get("type","")
+            if t == "system": n["session_id"] = ev.get("session_id") or n["session_id"]
+            elif t == "result":
+                n["result_text"] = ev.get("result","")
+                u = ev.get("usage") or {}
+                n["tokens_in"] = u.get("input_tokens",0) or 0; n["tokens_out"] = u.get("output_tokens",0) or 0
+                if ev.get("is_error"): n["is_error"] = True
+        if rc in (53, 55): n["is_error"] = True  # 53=turn cap, 55=budget cap
     elif b == "codex":
         n["result_text"] = rd(f"{outdir}/last.txt")
         for line in so.splitlines():
@@ -156,9 +262,9 @@ try:
         n["tokens_in"] = st.get("input_tokens",0) or 0; n["tokens_out"] = st.get("output_tokens",0) or 0
         if j.get("error"): n["is_error"] = True
         if rc == 53: n["is_error"] = True  # turn limit
-    else:  # opencode / aider: best-effort text
+    else:  # opencode / aider / copilot / cursor-agent / goose / kiro-cli: best-effort text
         n["result_text"] = so
-except (ValueError, KeyError):
+except (ValueError, KeyError, AttributeError):
     n["result_text"] = so; n["is_error"] = True  # unparseable => failed, never guess success
 blob = (so + se).lower()
 if re.search(r"rate.?limit|usage limit|429|session limit|resets at|quota exceeded", blob):
