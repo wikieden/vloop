@@ -25,11 +25,34 @@ L1 计划执行环    每轮新鲜上下文做一个任务 → 反压门(build/t
 
 ## 安装
 
+vloop 是标准 [Agent Skill](https://agentskills.io)（SKILL.md 开放规范）—— 装一次，**40+ 宿主通用**：Claude Code、Codex、OpenCode、Cursor、Gemini CLI、GitHub Copilot、droid、goose、crush、amp、Kiro、ZCode、Antigravity、Trae、Windsurf……
+
 ```bash
-# 全局（所有项目可用 /vloop）
-ln -s "$(pwd)/skills/vloop" ~/.claude/skills/vloop
-# 或项目级
-mkdir -p <your-project>/.claude/skills && ln -s "$(pwd)/skills/vloop" <your-project>/.claude/skills/vloop
+# 推荐：一条命令，装进所有检测到的宿主
+npx vloop-skill install
+
+# 原理：
+#   规范副本 -> ~/.agents/skills/vloop（codex/cursor/gemini/copilot/opencode/goose/crush/amp 原生读取）
+#   + symlink -> ~/.claude/skills、~/.zcode/skills、~/.kiro/skills、~/.factory/skills、
+#               ~/.gemini/antigravity/skills、~/.qwen/skills 等（只装检测到的宿主）
+
+npx vloop-skill doctor       # 体检：依赖(jq/python3/git)、宿主、loop backend
+npx vloop-skill uninstall    # 干净卸载（自带 manifest 追踪）
+```
+
+备选方式：
+```bash
+npx skills add wikieden/vloop        # 生态安装器（vercel-labs/skills，70+ agent）
+npx github:wikieden/vloop install    # 直接从 GitHub 跑安装器，不依赖 npm 发布
+```
+
+### 无宿主纯 CLI 使用
+
+模式 B 不需要任何 agent 宿主：
+```bash
+npx vloop-skill init   # 生成 .vloop/loop.json + prd.json 模板
+# 编辑后：
+npx vloop-skill run    # 无人值守三层循环；退出码 42 = 等人类 review
 ```
 
 ## 使用

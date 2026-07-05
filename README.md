@@ -36,14 +36,38 @@ Design distilled from the Ralph technique (ghuntley), six open-source loop imple
 
 ## Install
 
-Requires [Claude Code](https://claude.com/claude-code) (the skill host), plus `jq`, `python3`, `git`, and whichever agent CLIs you configure as backends.
+vloop is a standard [Agent Skill](https://agentskills.io) (SKILL.md) — it installs once and works in **any of the 40+ hosts** that read the format: Claude Code, Codex, OpenCode, Cursor, Gemini CLI, GitHub Copilot, droid, goose, crush, amp, Kiro, ZCode, Antigravity, Trae, Windsurf, …
 
 ```bash
-git clone https://github.com/wikieden/vloop && cd vloop
-# global (every project gets /vloop)
-ln -s "$(pwd)/skills/vloop" ~/.claude/skills/vloop
-# or per-project
-mkdir -p <your-project>/.claude/skills && ln -s "$(pwd)/skills/vloop" <your-project>/.claude/skills/vloop
+# recommended: one command, all detected hosts
+npx vloop-skill install
+
+# what it does:
+#   canonical copy -> ~/.agents/skills/vloop   (codex/cursor/gemini/copilot/opencode/
+#                                               goose/crush/amp read this natively)
+#   + symlinks     -> ~/.claude/skills, ~/.zcode/skills, ~/.kiro/skills,
+#                     ~/.factory/skills, ~/.gemini/antigravity/skills, ~/.qwen/skills, …
+#                     (only for hosts detected on your machine)
+
+npx vloop-skill doctor       # verify deps (jq/python3/git), hosts, loop backends
+npx vloop-skill uninstall    # clean removal (tracked by its own manifest)
+```
+
+Alternatives:
+```bash
+npx skills add wikieden/vloop        # the ecosystem installer (vercel-labs/skills, 70+ agents)
+npx github:wikieden/vloop install    # run the installer straight from GitHub, no npm needed
+```
+
+Runtime deps for the loop orchestrator: `bash`, `git`, `jq`, `python3`, plus whichever backend CLIs you configure.
+
+### Use without any host (pure CLI)
+
+Mode B needs no agent host at all:
+```bash
+npx vloop-skill init   # scaffold .vloop/loop.json + prd.json templates
+# edit them, then:
+npx vloop-skill run    # unattended 3-layer loop; exit 42 = awaiting human review
 ```
 
 ## Usage

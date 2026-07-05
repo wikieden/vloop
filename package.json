@@ -1,0 +1,43 @@
+{
+  "name": "vloop-skill",
+  "version": "0.2.0",
+  "description": "Three-layer closed-loop engineering skill for AI coding agents (plan-execute / acceptance-redesign / human-review). Installs into 40+ SKILL.md-compatible hosts: claude, codex, opencode, cursor, gemini, copilot, droid, zcode, antigravity, and more.",
+  "bin": {
+    "vloop-skill": "bin/vloop-skill.js"
+  },
+  "files": [
+    "bin",
+    "skills",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node bin/vloop-skill.js doctor"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wikieden/vloop.git"
+  },
+  "homepage": "https://github.com/wikieden/vloop#readme",
+  "bugs": {
+    "url": "https://github.com/wikieden/vloop/issues"
+  },
+  "keywords": [
+    "agent-skills",
+    "skill",
+    "loop-engineering",
+    "ralph",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "opencode",
+    "autonomous-agents",
+    "agentic-workflow"
+  ],
+  "author": "wikieden",
+  "license": "MIT"
+}
