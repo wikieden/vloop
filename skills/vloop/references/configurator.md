@@ -14,6 +14,21 @@ ls package.json Makefile Cargo.toml pyproject.toml 2>/dev/null   # gate auto-det
 
 Only offer installed backends as options. If <2 backends installed, warn: judge should differ from executor; same-backend fallback allowed only with a different model (e.g. executor opus / judge haiku is NOT acceptable for judging — prefer strongest model for judge).
 
+**Single-backend tiered preset ("claude-tiered")** — when the user has only claude (or explicitly wants to stay inside one vendor), offer this as option A: strongest model plans and judges, standard model executes. Same backend, but the judge is still a *different, stronger model* in a *physically read-only* invocation, so cross-model verification and the no-self-grading property survive at the model level (weaker isolation than cross-vendor — same provider biases and tooling — say so honestly):
+
+```json
+"backends": {
+  "planner":  { "backend": "claude", "model": "claude-fable-5" },
+  "executor": { "backend": "claude", "model": "claude-sonnet-5" },
+  "judge":    { "backend": "claude", "model": "claude-fable-5", "readonly": true },
+  "pool": {
+    "hard": { "backend": "claude", "model": "claude-fable-5" }
+  }
+}
+```
+
+The `pool.hard` preset lets the planner tag genuinely hard tasks `[agent: hard]` to run on the strong model while routine tasks stay on the cheap executor. Economics note from research: cheapest model ≠ cheapest run (weak models cost more via 2-3× turn counts) — the tiered split pays off when most tasks are routine.
+
 ## Round 1 — 闭环形态 (≤5 questions, multiple choice)
 
 1. **验收来源** — A. 已有 PRD/spec 文件（给路径） B. 现场访谈生成 PRD（追加一轮 3-5 问的 PRD 访谈，snarktank 风格） C. GOAL.md 标量指标型（要求用户定义指标计算命令；警告 Goodhart 风险：指标计算器必须是 agent 不可修改的文件，列入 gates）
