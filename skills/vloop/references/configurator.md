@@ -22,6 +22,8 @@ Only offer installed backends as options. If <2 backends installed, warn: judge 
 4. **反压门 (gates)** — A. 自动探测（package.json scripts.test/lint/build、Makefile、cargo check/test） B. 手填命令数组 C. aider 微循环托管（仅 executor=aider）。探测结果必须回显给用户确认。
 5. **运行模式** — A. 会话内 Mode A（可观察、首跑推荐） B. 无人值守 Mode B（过夜/systemd）
 
+**混合 agent（可选，不占正式提问轮次）**：如果用户提到"不同任务想用不同 agent"，直接说明机制而非追加问题——plan.md 每行任务可加 `[agent: <backend>]` 标签，planner 会按任务性质自动打（机械式多文件改名 → aider；大 context 重构 → 通过 `loop.json backends.pool` 定义的大模型）；未打标签的任务用默认 executor。见 [loop-protocol.md](loop-protocol.md) 的"Mixed-agent loops"。若用户想手动指定某类任务用某 backend，在 `backends.pool` 里加命名预设即可，不需要专门的访谈轮次。
+
 ## Round 2 — 护栏 (≤5 questions)
 
 6. **隔离** — A. git worktree + 分支（默认） B. 仅分支 C. Docker 沙箱。若任何 backend 需要 danger flag（--dangerously-*/--yolo/--auto），只允许 A 或 C。

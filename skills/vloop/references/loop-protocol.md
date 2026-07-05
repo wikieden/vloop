@@ -11,20 +11,26 @@ Mode A: the Claude Code session follows this protocol as orchestrator, invoking 
 
 ## L1 — implement phase
 
-Per iteration (fresh context, executor backend):
+**Task assignment is deterministic, not agent-chosen.** The orchestrator — not the executor — picks the next task: the first unchecked `- [ ]` line in `plan.md`, top to bottom (planner already orders by priority). This is what makes per-task backend routing possible: since the orchestrator knows which task is about to run *before* invoking anything, it can read that task's optional `[agent: <backend>]` tag and launch the matching CLI. An executor that chose its own work could never be pinned to a specific backend per task.
+
+**Mixed-agent loops**: tag any task line with `[agent: <backend>]` — a bare backend id (`claude`, `codex`, `opencode`, `gemini`, `aider`, `copilot`, `cursor-agent`, `droid`, `amp`, `qwen`, `goose`, `kiro-cli`; reuses the default executor's model/danger/readonly settings) or a name defined in `loop.json` `backends.pool.<name>` (own model/danger/readonly, e.g. `[agent: gemini-bulk]` for a large-context migration on gemini-3-pro while everything else runs on claude). Untagged tasks use `backends.executor`. An unrecognized tag logs a warning and falls back to the default executor rather than failing the loop — a planner typo should never brick a run. The planner (PROMPT-replan.md) is instructed to tag tasks only when a backend genuinely suits the work better (e.g. a mechanical multi-file rename → `aider`, a large-context refactor → a big-context model via the pool).
+
+Per iteration (fresh context, executor backend — possibly overridden per task):
 
 1. **Pre-flight**: `git status --porcelain` must be clean (uncommitted leftovers from a failed iteration → `git checkout . && git clean -fd` within the worktree — the ratchet is commits, rollback beats fix-forward). Check caps: iteration < max_iterations; budget ledger < budget_usd; else → L3 escalation.
-2. **Assemble prompt** from `templates/PROMPT-implement.md`, substituting: `{{PLAN}}` (plan.md content), `{{PROGRESS_TAIL}}` (last ~30 lines of progress.md), `{{AGENT_MD}}`, `{{GATE_FEEDBACK}}` (previous iteration's gate failure evidence, truncated to ~200 lines, or "none").
-3. **Invoke executor** (adapters.md), timeout `iteration_timeout_s`, output to `runs/iter-N/`.
-4. **Validate verdict** `.vloop/verdict.json` against schema `{status: done|continue|blocked, task_id, evidence, notes_for_next_iteration}`. Missing/invalid → record failed iteration, GATE_FEEDBACK = "verdict missing/invalid", next iteration.
-5. **Run gates** serially (`gates[]` from loop.json), capturing output to `runs/iter-N/gate-<name>.log`:
-   - All pass AND `git diff` non-empty → commit `vloop(T<id>): <title> [iter N]`; tick the task checkbox in plan.md; append one line to progress.md (`iter N: T<id> done, gates green, cost $X`).
+2. **Pick task**: parse `plan.md` for the first unchecked task; if none remain but phase is still `implement`, that means all tasks were ticked without the last verdict saying `done` — treat it as a completed plan (not an error) and proceed to L2 acceptance directly.
+3. **Assemble prompt** from `templates/PROMPT-implement.md`, substituting: `{{TASK_ID}}` / `{{TASK_LINE}}` (the assigned task only — the executor is told not to pick different work), `{{PLAN}}` (full plan.md, for context only), `{{PROGRESS_TAIL}}` (last ~30 lines of progress.md), `{{AGENT_MD}}`, `{{GATE_FEEDBACK}}` (previous iteration's gate failure evidence, truncated to ~200 lines, or "none").
+4. **Invoke executor** (adapters.md) with the resolved backend for this task, timeout `iteration_timeout_s`, output to `runs/iter-N/`.
+5. **Validate verdict** `.vloop/verdict.json` against schema `{status: done|continue|blocked, task_id, evidence, notes_for_next_iteration}`. Missing/invalid → failed iteration. **`verdict.task_id` must equal the assigned task id** — a mismatch (executor worked on the wrong task) is also a failed iteration, not silently accepted; GATE_FEEDBACK explains the mismatch.
+6. **Run gates** serially (`gates[]` from loop.json), capturing output to `runs/iter-N/gate-<name>.log`:
+   - All pass AND `git diff` non-empty → commit `vloop(T<id>): <title> [iter N]<via backend if tagged>`; tick the task checkbox in plan.md; append one line to progress.md (`iter N: T<id> done, gates green, cost $X`).
    - Any gate fails → NO commit; GATE_FEEDBACK = failing gate tail; next iteration.
-6. **Circuit breaker** (update counters in state.json):
+   - **Immediately after ticking**, if no `- [ ]` lines remain in plan.md → phase=accept right away (don't wait for a `done` verdict that may never come if the executor keeps reporting `continue`).
+7. **Circuit breaker** (update counters in state.json):
    - HEAD + `git status --porcelain | shasum` unchanged 3 consecutive iterations → 1st trip: phase=replan (with "stuck" evidence); 2nd trip: phase=awaiting_human.
    - Same normalized error signature (first failing test name + error class) 5 consecutive → same escalation path.
    - Rate-limit/5h-window detected in backend output → sleep until reset; does NOT consume an iteration.
-7. **Transition**: verdict `done` AND all plan boxes ticked → phase=accept. Verdict `blocked` → phase=awaiting_human. Else next iteration.
+8. **Transition**: plan fully ticked (previous step) or verdict `done` → phase=accept. Verdict `blocked` → phase=awaiting_human. Else next iteration.
 
 Verdict is a claim, not proof: `done` with unticked boxes or empty diff = failed iteration.
 

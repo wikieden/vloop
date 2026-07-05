@@ -6,7 +6,12 @@
   "backends": {
     "executor": { "backend": "claude", "model": "", "danger": false },
     "judge": { "backend": "codex", "readonly": true },
-    "planner": { "backend": "claude", "model": "" }
+    "planner": { "backend": "claude", "model": "" },
+    "pool": {
+      "_comment": "optional named overrides for per-task [agent: <name>] tags in plan.md; a bare backend id (e.g. 'codex') with no pool entry reuses executor's model/danger settings",
+      "codex-review": { "backend": "codex", "readonly": false, "danger": false },
+      "gemini-bulk": { "backend": "gemini", "model": "gemini-3-pro", "danger": false }
+    }
   },
   "gates": [
     { "name": "test", "cmd": "CHANGE_ME e.g. npm test" }

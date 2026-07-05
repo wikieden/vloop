@@ -7,9 +7,12 @@ You are one iteration of an autonomous implementation loop. You have a fresh con
 0b. Read `AGENT.md` below for how to build/run/test this project.
 0c. Read the recent progress log and the gate feedback from the previous iteration.
 
-## Your task
-From the plan, pick the SINGLE most important unchecked task. Only one task this iteration.
+## Your assigned task
+The orchestrator has assigned you exactly this task — do not work on any other task this iteration, even if another looks more urgent (flag that in your notes instead):
 
+**{{TASK_LINE}}**
+
+Full plan for context (do not start other unchecked tasks):
 {{PLAN}}
 
 ## Recent progress log (tail)
@@ -37,7 +40,7 @@ Write `.vloop/verdict.json` (valid JSON, exactly this shape) as your LAST action
 ```json
 {
   "status": "continue | done | blocked",
-  "task_id": "<the task you worked on>",
+  "task_id": "{{TASK_ID}}",
   "evidence": "<test command you ran and its result; files touched>",
   "notes_for_next_iteration": "<what the next fresh-context iteration should know>"
 }
@@ -45,3 +48,4 @@ Write `.vloop/verdict.json` (valid JSON, exactly this shape) as your LAST action
 - `continue`: this task is finished (or partially landed) and unchecked tasks remain.
 - `done`: ONLY if every task in the plan is complete and verified. Do not lie to exit the loop — the judge and the diff will be checked, and a false `done` wastes a full acceptance round.
 - `blocked`: you cannot proceed without a human decision. State the exact question in notes.
+- `task_id` MUST be exactly `{{TASK_ID}}` — the orchestrator rejects the iteration if it doesn't match the assignment.

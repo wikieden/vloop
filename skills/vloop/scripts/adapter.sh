@@ -3,8 +3,12 @@
 # bash 3.2 compatible (macOS default). Requires: jq, python3.
 # Usage:
 #   adapter.sh probe                      -> writes .vloop/backends.json
-#   adapter.sh invoke <role> <prompt_file> <outdir>
+#   adapter.sh invoke <role> <prompt_file> <outdir> [agent_tag]
 #     role = executor | judge | planner  (read from .vloop/loop.json)
+#     agent_tag = optional per-task override: either a bare backend id (reuses
+#       role's model/danger/readonly) or a name under .backends.pool.<name>
+#       (own backend/model/danger/readonly). Falls back to the role's own
+#       backend if omitted or unrecognized (caller should warn on unknown tags).
 #     Produces <outdir>/out.stdout, out.stderr, out.json (normalized).
 
 set -u
@@ -71,14 +75,32 @@ probe() {
 
 # ---------------------------------------------------------------- invoke
 invoke() {
-  role="$1"; prompt_file="$2"; outdir="$3"
+  role="$1"; prompt_file="$2"; outdir="$3"; tag="${4:-}"
   [ -f "$CONFIG" ] || die "no $CONFIG"
   [ -f "$prompt_file" ] || die "prompt file missing: $prompt_file"
   mkdir -p "$outdir"
-  backend=$(cfg ".backends.$role.backend")
-  model=$(cfg ".backends.$role.model // empty")
-  ro=$(cfg ".backends.$role.readonly // false")
-  danger=$(cfg ".backends.$role.danger // false")
+  pool_hit=""
+  if [ -n "$tag" ]; then
+    pool_hit=$(jq -r --arg t "$tag" '.backends.pool[$t].backend // empty' "$CONFIG")
+  fi
+  if [ -n "$pool_hit" ]; then
+    # named pool preset: own backend/model/danger/readonly
+    backend="$pool_hit"
+    model=$(jq -r --arg t "$tag" '.backends.pool[$t].model // empty' "$CONFIG")
+    ro=$(jq -r --arg t "$tag" '.backends.pool[$t].readonly // false' "$CONFIG")
+    danger=$(jq -r --arg t "$tag" '.backends.pool[$t].danger // false' "$CONFIG")
+  elif [ -n "$tag" ]; then
+    # bare backend id override: swap backend, keep role's model/danger/readonly
+    backend="$tag"
+    model=$(cfg ".backends.$role.model // empty")
+    ro=$(cfg ".backends.$role.readonly // false")
+    danger=$(cfg ".backends.$role.danger // false")
+  else
+    backend=$(cfg ".backends.$role.backend")
+    model=$(cfg ".backends.$role.model // empty")
+    ro=$(cfg ".backends.$role.readonly // false")
+    danger=$(cfg ".backends.$role.danger // false")
+  fi
   tmo=$(cfg ".caps.iteration_timeout_s // 1800")
   so="$outdir/out.stdout"; se="$outdir/out.stderr"
   start_ts=$(date +%s)

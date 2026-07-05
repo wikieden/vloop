@@ -2,6 +2,8 @@
 
 Uniform contract per role invocation: build command → run with timeout, stdin from /dev/null unless intentionally piping, **stdout and stderr captured separately** → normalize to `runs/iter-N/out.json` `{result_text, session_id, tokens_in, tokens_out, cost_usd, is_error}` → verdict read from `.vloop/verdict.json` (uniform file protocol; native schema flags are an optimization, not the mechanism).
 
+**Mixed-agent loops** (different tasks routed to different backends): `adapter.sh invoke <role> <prompt_file> <outdir> [agent_tag]` takes an optional 4th arg. `agent_tag` is either a bare backend id (swaps `backend` only, keeps the role's `model`/`readonly`/`danger`) or a name defined in `loop.json` `backends.pool.<name>` (a full standalone `{backend, model, readonly, danger}` record). The orchestrator resolves the tag from the assigned task's `[agent: <tag>]` marker in `plan.md` — see loop-protocol.md's L1 section for how task assignment and backend routing are tied together.
+
 ## Invocation matrix (verified 2026-07; probe before trusting — flags drift)
 
 | Backend | Execute (write) | Judge (read-only) | Resume | Notes |

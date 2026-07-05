@@ -19,7 +19,8 @@ You are the planner. The implementation loop either needs an initial plan, faile
 2. Every failed criterion in the judge feedback must map to at least one task. Quote the criterion id in the task.
 3. **Task granularity: one task = one context window.** Right-sized: "add a DB column + migration", "add filter dropdown + test". Must split: "build the dashboard", "add authentication". When in doubt, split.
 4. Order by priority: unblocking/foundational tasks first, then criterion coverage, then hardening.
-5. Each task line: `- [ ] T<n>: <imperative description> (covers: <criterion ids>) — verify: <command or check>`
+5. Each task line: `- [ ] T<n>: <imperative description> (covers: <criterion ids>) [agent: <backend>] — verify: <command or check>`
+   `[agent: <backend>]` is OPTIONAL — omit it to use the default executor from loop.json. Set it only when a task genuinely suits a different backend (e.g. `[agent: codex]` for a gnarly refactor, `[agent: gemini]` for a large-context migration, `[agent: aider]` for a mechanical multi-file rename). The tag must name a backend already configured in `.vloop/loop.json` `backends.pool` or one of the standard 12 backend ids — an unrecognized tag falls back to the default executor with a warning, it does not fail the loop.
 6. Keep completed tasks from the old plan as checked `- [x]` lines only if their commits exist; drop stale/superseded items entirely — a bloated plan degrades every future iteration.
 7. Do NOT modify acceptance criteria, prd.json, or any code. Your only output is the plan.
 
@@ -30,6 +31,6 @@ Overwrite `.vloop/plan.md` with the new plan:
 <one-line strategy note: what this revision changes and why>
 
 - [ ] T1: ... (covers: S1C1, S1C2) — verify: npm test -- auth
-- [ ] T2: ...
+- [ ] T2: ... [agent: codex] — verify: ...
 ```
 Then write `.vloop/verdict.json`: `{"status": "continue", "task_id": "replan", "evidence": "plan revised, N tasks", "notes_for_next_iteration": "<strategy note>"}`

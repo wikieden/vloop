@@ -59,6 +59,25 @@ npx vloop-skill init   # scaffold .vloop/loop.json + prd.json templates in the c
 npx vloop-skill run    # unattended 3-layer loop; exit code 42 = awaiting human review
 ```
 
+## Mixed-agent loops (different tasks, different backends)
+
+You don't need to leave the loop's host to mix agents — vloop's own orchestrator does the routing. The **orchestrator, not the executor, picks the next task** (first unchecked line in `plan.md`, top to bottom), so it always knows which backend to launch *before* invoking anything:
+
+```markdown
+- [ ] T1: add DB migration (covers: S1C1) — verify: npm test -- migrate
+- [ ] T2: rename `userId` -> `accountId` across the repo (covers: S1C2) [agent: aider] — verify: npm test
+- [ ] T3: refactor the 40k-line legacy module (covers: S1C3) [agent: gemini-bulk] — verify: npm test -- legacy
+```
+
+`[agent: <backend>]` is optional per task: a bare id (`codex`, `aider`, `gemini`, …) reuses the default executor's model/settings; a name from `loop.json` `backends.pool.<name>` gets its own model/danger/readonly. The planner tags tasks itself when a backend genuinely fits better (mechanical rename → aider, huge-context refactor → a big-context model) — you rarely need to hand-edit `plan.md`. An unrecognized tag warns and falls back to the default executor rather than failing the run. Commits are labeled (`vloop(T2): iter 4 green via aider`) so `git log` shows exactly who did what.
+
+This means **the host you drive vloop from doesn't need its own multi-agent feature** — one `/vloop run` already dispatches T1 to claude, T2 to aider, T3 to gemini. Where a host's own multi-agent UI *is* useful is for interactive, non-looped work (comparing two models on the same task, or babysitting several unrelated threads by hand):
+
+- **Zed** — native [Parallel Agents](https://zed.dev/docs/ai/parallel-agents): open one thread per task in the Threads Sidebar, bind each to a different agent via ACP (Zed's own agent, Claude Code, Codex, Gemini CLI — configured under `agent_servers` in `settings.json`). Zed also reads `~/.agents/skills` natively, so `/vloop` just works in any thread; its integrated terminal (`` Ctrl+` ``) runs `npx vloop-skill run` for the unattended path.
+- **Cursor** — [Background/Parallel Agents](https://cursor.com) (Cursor 3+) run multiple isolated-worktree agents concurrently, each with a selectable *model* (Composer 2 / Opus / GPT-5.4) — note this is Cursor's own agent with a pluggable model, not a different agent CLI per thread. For genuinely different CLIs per task, either run `/vloop run` from a Cursor terminal tab (same routing as above), or drive `cursor-agent -w <name> --model <model>` per task yourself alongside other CLIs in separate terminal tabs.
+- **Claude Code** — `/vloop setup` then `/vloop run` (Mode A): the session itself is the orchestrator, shelling out to whichever backend each task is tagged with.
+- **Codex CLI** — `$vloop setup` / `$vloop run`: same protocol, Codex's shell tool runs `vloop.sh` which dispatches per task.
+
 ## Usage by agent
 
 Once installed, every host loads the same `SKILL.md`; only the *invocation syntax* differs. Core commands regardless of host: `setup` (bounded Q&A configurator) · `run` (Mode A, observable) · `run --unattended` (Mode B, background) · `resume` (after human review) · `status` · `cancel`.

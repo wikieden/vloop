@@ -125,6 +125,30 @@ clean_tree() { git checkout -- . 2>/dev/null; git clean -fd -e .vloop >/dev/null
 
 progress_hash() { { git rev-parse HEAD; git status --porcelain; } | shasum | cut -d' ' -f1; }
 
+KNOWN_BACKENDS="claude codex opencode gemini aider copilot cursor-agent droid amp qwen goose kiro-cli"
+
+# Orchestrator (not the agent) deterministically picks the next task — top to
+# bottom, first unchecked line — so a per-task [agent: <backend>] tag can be
+# honored: the agent never gets to choose work, so we always know in advance
+# which backend must run it. Prints one JSON object: {id, line, agent}.
+pick_task() {
+  python3 - "$VLOOP_DIR/plan.md" <<'PY'
+import json, re, sys
+try:
+    lines = open(sys.argv[1]).readlines()
+except OSError:
+    lines = []
+for line in lines:
+    m = re.match(r'^- \[ \] (T\S+?):', line)
+    if m:
+        am = re.search(r'\[agent:\s*([a-zA-Z0-9_-]+)\]', line)
+        print(json.dumps({"id": m.group(1), "line": line.strip(), "agent": am.group(1) if am else None}))
+        break
+else:
+    print(json.dumps({}))
+PY
+}
+
 # ------------------------------------------------------------- L1 implement
 do_implement() {
   it=$(sget '.iteration'); max_it=$(cfg '.caps.max_iterations')
@@ -140,14 +164,35 @@ do_implement() {
   outdir="$VLOOP_DIR/runs/iter-$it"; mkdir -p "$outdir"
   [ -n "$(git status --porcelain)" ] && { log "dirty tree from failed iteration — rolling back"; clean_tree; }
 
+  task_json=$(pick_task)
+  task_id=$(printf '%s' "$task_json" | jq -r '.id // empty')
+  task_line=$(printf '%s' "$task_json" | jq -r '.line // empty')
+  task_agent=$(printf '%s' "$task_json" | jq -r '.agent // empty')
+  if [ -z "$task_id" ]; then
+    if grep -q '^- \[x\]' "$VLOOP_DIR/plan.md" 2>/dev/null; then
+      log "plan.md fully complete -> L2 acceptance"; sset '.phase="accept"'; return
+    fi
+    escalate "plan.md has no tasks at all — planner produced an empty/malformed plan"; return
+  fi
+  if [ -n "$task_agent" ]; then
+    pool_names=$(jq -r '.backends.pool // {} | keys[]?' "$CONFIG")
+    if ! printf '%s\n%s\n' "$KNOWN_BACKENDS" "$pool_names" | tr ' ' '\n' | grep -qx "$task_agent"; then
+      log "WARNING: $task_id has unknown agent tag '$task_agent' — falling back to default executor"
+      task_agent=""
+    else
+      log "iter $it: $task_id assigned to agent tag '$task_agent'"
+    fi
+  fi
+
   tail -30 "$VLOOP_DIR/progress.md" > "$outdir/progress.tail" 2>/dev/null || echo "(none)" > "$outdir/progress.tail"
   render "$TPL_DIR/PROMPT-implement.md" "$outdir/prompt.md" \
     "PLAN=@$VLOOP_DIR/plan.md" "PROGRESS_TAIL=@$outdir/progress.tail" \
-    "AGENT_MD=@$VLOOP_DIR/AGENT.md" "GATE_FEEDBACK=@$VLOOP_DIR/runs/gate-feedback.txt"
+    "AGENT_MD=@$VLOOP_DIR/AGENT.md" "GATE_FEEDBACK=@$VLOOP_DIR/runs/gate-feedback.txt" \
+    "TASK_ID=$task_id" "TASK_LINE=$task_line"
 
-  log "iter $it: invoking executor"
+  log "iter $it: invoking executor on $task_id"
   rm -f "$VLOOP_DIR/verdict.json"
-  "$ADAPTER" invoke executor "$outdir/prompt.md" "$outdir"
+  "$ADAPTER" invoke executor "$outdir/prompt.md" "$outdir" "$task_agent"
   ledger_add "$outdir"
 
   if jq -e '.rate_limited == true' "$outdir/out.json" >/dev/null 2>&1; then
@@ -156,11 +201,14 @@ do_implement() {
 
   # validate verdict (schema-checked; missing/invalid = failed iteration, not 'continue')
   verdict_status=$(jq -r 'if (.status? | IN("done","continue","blocked")) then .status else "INVALID" end' "$VLOOP_DIR/verdict.json" 2>/dev/null || echo "INVALID")
-  task_id=$(jq -r '.task_id // "?"' "$VLOOP_DIR/verdict.json" 2>/dev/null || echo "?")
+  reported_id=$(jq -r '.task_id // "?"' "$VLOOP_DIR/verdict.json" 2>/dev/null || echo "?")
 
   gates_green=true
   if [ "$verdict_status" = "INVALID" ]; then
     gates_green=false; echo "verdict.json missing or invalid — you MUST write it as your last action" > "$VLOOP_DIR/runs/gate-feedback.txt"
+  elif [ "$reported_id" != "$task_id" ]; then
+    gates_green=false
+    echo "you were assigned $task_id but verdict.task_id was '$reported_id' — work ONLY on the assigned task" > "$VLOOP_DIR/runs/gate-feedback.txt"
   else
     : > "$VLOOP_DIR/runs/gate-feedback.txt"
     n_gates=$(cfg '.gates | length'); g=0
@@ -177,7 +225,8 @@ do_implement() {
   fi
 
   if [ "$gates_green" = "true" ] && [ -n "$(git status --porcelain)" ]; then
-    git add -A && git commit -q -m "vloop(${task_id}): iter $it green" \
+    agent_note=""; [ -n "$task_agent" ] && agent_note=" via $task_agent"
+    git add -A && git commit -q -m "vloop(${task_id}): iter $it green${agent_note}" \
       && log "iter $it: committed (ratchet)"
     # orchestrator (not the agent) ticks the plan checkbox
     [ "$task_id" != "?" ] && sed -i.bak "s/^- \[ \] ${task_id}:/- [x] ${task_id}:/" "$VLOOP_DIR/plan.md" 2>/dev/null && rm -f "$VLOOP_DIR/plan.md.bak"
@@ -206,16 +255,19 @@ do_implement() {
 
   sset '.iteration += 1'
 
-  case "$verdict_status" in
-    blocked) escalate "executor blocked: $(jq -r '.notes_for_next_iteration // ""' "$VLOOP_DIR/verdict.json" 2>/dev/null)" ;;
-    done)
-      if grep -q '^- \[ \]' "$VLOOP_DIR/plan.md"; then
-        log "verdict 'done' but unticked tasks remain — claim rejected, continuing"
-        echo "You declared done but plan.md still has unchecked tasks. Finish them or split them." > "$VLOOP_DIR/runs/gate-feedback.txt"
-      elif [ "$gates_green" = "true" ]; then
-        log "plan complete + gates green -> L2 acceptance"; sset '.phase="accept"'
-      fi ;;
-  esac
+  if [ "$verdict_status" = "blocked" ]; then
+    escalate "executor blocked: $(jq -r '.notes_for_next_iteration // ""' "$VLOOP_DIR/verdict.json" 2>/dev/null)"; return
+  fi
+
+  # transition on plan completion regardless of what the verdict claimed — an
+  # executor that keeps saying "continue" after the last task must not stall
+  # the loop waiting for a "done" that may never come
+  if [ "$gates_green" = "true" ] && ! grep -q '^- \[ \]' "$VLOOP_DIR/plan.md" 2>/dev/null; then
+    log "plan complete -> L2 acceptance"; sset '.phase="accept"'
+  elif [ "$verdict_status" = "done" ] && grep -q '^- \[ \]' "$VLOOP_DIR/plan.md" 2>/dev/null; then
+    log "verdict 'done' but unticked tasks remain — claim rejected, continuing"
+    echo "You declared done but plan.md still has unchecked tasks. Finish them or split them." > "$VLOOP_DIR/runs/gate-feedback.txt"
+  fi
 }
 
 # ------------------------------------------------------------- L2 accept

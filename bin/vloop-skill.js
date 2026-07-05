@@ -24,7 +24,7 @@ const PKG_SKILL = path.join(__dirname, '..', 'skills', 'vloop');
 // Hosts already covered by the canonical ~/.agents/skills install (do NOT symlink —
 // duplicate listings confuse hosts like codex that show dupes instead of merging).
 const NATIVE_AGENTS_HOSTS = [
-  'codex', 'cursor', 'gemini-cli', 'github-copilot', 'opencode', 'goose', 'crush', 'amp',
+  'codex', 'cursor', 'gemini-cli', 'github-copilot', 'opencode', 'goose', 'crush', 'amp', 'zed',
 ];
 
 // Hosts that need a symlink into their own skills dir. detect: any of these
