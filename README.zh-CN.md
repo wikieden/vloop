@@ -10,7 +10,7 @@ L2 产品验收环    异构只读 judge 逐条判验收标准；不过则重设
 L1 计划执行环    每轮新鲜上下文做一个任务 → 反压门(build/test/lint) → 绿则 commit 棘轮
 ```
 
-核心机制：**每层的"完成"只能由外层确认**。verdict 是 schema 校验的文件而非魔法字符串；judge 与 executor 不同 backend 且物理只读；每层有硬上限（迭代/重设计轮次/预算/超时）+ 熔断器；人类门按动作类别（merge/deploy/publish/delete/charge/close）不可关闭。
+核心机制：**每层的"完成"只能由外层确认**。核心三角色(planner/executor/judge)外还有八个可选专职角色——**vetter**(PRD 审查)、**tester**(TDD 分离:写测试的≠写代码的,hash 强制)、**qa**(e2e 证据采集)、**oracle**(卡点二意见)、**hunter**(验收后占位符清剿)、**cleaner**(deslop)、**summarizer**(人类交接摘要)、**dispatcher**(任务路由)。全开时流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → summarize → human`,任意子集可选。verdict 是 schema 校验的文件而非魔法字符串；judge 与 executor 不同 backend 且物理只读；每层有硬上限（迭代/重设计轮次/预算/超时）+ 熔断器；人类门按动作类别（merge/deploy/publish/delete/charge/close）不可关闭。
 
 ## 安装
 

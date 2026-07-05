@@ -29,5 +29,17 @@
     "on_escalation": true
   },
   "resume_strategy": "fresh",
-  "notify": { "type": "none", "target": "" }
+  "notify": { "type": "none", "target": "" },
+  "_optional_roles_reference": {
+    "_comment": "copy any of these into .backends to activate; all are opt-in. readonly:true roles print verdicts (can't write files); write roles must not commit.",
+    "vetter":     { "backend": "codex", "readonly": true,  "_when": "one-shot PRD review before planning; blocking findings pause for the human" },
+    "tester":     { "backend": "claude", "model": "", "_when": "TDD split: writes RED tests per task; executor may not modify them (hash-checked)" },
+    "qa":         { "backend": "claude", "_when": "runs verify_hints/e2e before the judge, records evidence; code changes discarded" },
+    "oracle":     { "backend": "codex", "readonly": true,  "_when": "one consult per blocked task before escalating to the human" },
+    "hunter":     { "backend": "codex", "readonly": true,  "_when": "post-acceptance placeholder/mock sweep; findings trigger one replan round" },
+    "cleaner":    { "backend": "claude", "_when": "post-acceptance deslop; discarded if regression gates fail, never blocks milestone" },
+    "summarizer": { "backend": "claude", "model": "claude-haiku-4-5-20251001", "readonly": true, "_when": "writes the run summary into AWAITING_HUMAN.md (cheap model)" },
+    "dispatcher": { "backend": "claude", "_when": "re-tags [agent:] routing after each replan; may only touch tags (diff-checked)" },
+    "merger":     { "backend": "claude", "_when": "RESERVED: integrates parallel lanes; ignored by the single-lane orchestrator" }
+  }
 }

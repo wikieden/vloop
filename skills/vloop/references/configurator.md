@@ -54,6 +54,16 @@ Pool entries may point at a *different backend entirely* — here a codex-planne
 
 **混合 agent（可选，不占正式提问轮次）**：如果用户提到"不同任务想用不同 agent"，直接说明机制而非追加问题——plan.md 每行任务可加 `[agent: <backend>]` 标签，planner 会按任务性质自动打（机械式多文件改名 → aider；大 context 重构 → 通过 `loop.json backends.pool` 定义的大模型）；未打标签的任务用默认 executor。见 [loop-protocol.md](loop-protocol.md) 的"Mixed-agent loops"。若用户想手动指定某类任务用某 backend，在 `backends.pool` 里加命名预设即可，不需要专门的访谈轮次。
 
+## Round 2.5 — 扩展角色（1 问，multiSelect，可全不选）
+
+问一次:"要启用哪些扩展角色?(核心三角色外全部可选,默认只推荐前两项)" 选项按价值排序,多选:
+- A. **vetter + summarizer**(推荐——各一次调用,PRD 审查 + 人类交接摘要,成本最低杠杆最高)
+- B. **hunter + cleaner**(验收后占位符清剿 + deslop,OMC ralph 实战验证的组合)
+- C. **tester**(TDD 分离:写测试的 ≠ 写代码的,hash 强制不可改;改变 L1 结构,首跑建议先不开)
+- D. **qa + oracle + dispatcher**(e2e 证据采集 / 卡点二意见 / 任务路由,按需)
+
+选中的角色写入 `backends.<role>`,backend 默认沿用 judge 的异构选择(vetter/hunter/oracle 用非 executor 的 backend;summarizer 配便宜模型)。全不选 = 纯核心三角色循环,完全合法。
+
 ## Round 2 — 护栏 (≤5 questions)
 
 6. **隔离** — A. git worktree + 分支（默认） B. 仅分支 C. Docker 沙箱。若任何 backend 需要 danger flag（--dangerously-*/--yolo/--auto），只允许 A 或 C。

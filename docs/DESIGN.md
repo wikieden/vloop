@@ -198,6 +198,25 @@
 - 提示词硬规则（模板内置）：禁止占位实现；实现前先搜索（防重复实现 —— Ralph 的阿喀琉斯之踵）；无关测试挂了也要修（属于本增量）；禁止在无人值守下提问（问题写进 verdict.notes 升级 L3）；测试自带 why 注释（给未来迭代留纸条）。
 - 每轮开始 `git status` 校验干净工作区；门失败禁止 commit。
 
+## 9.5 扩展角色体系
+
+核心三角色(planner / executor / judge)+ 确定性编排器 + 人类之外,八个**可选**专职角色,`loop.json backends.<role>` 配了才激活,任意子集合法:
+
+| 角色 | 挂载点 | 权限 | 一句话 |
+|---|---|---|---|
+| vetter | 首次规划前一次 | 只读 | PRD 审查,blocking 发现直接升人类(未审 PRD 会整维度漏安全/性能) |
+| tester | L1 每任务 executor 前 | 写 | TDD 分离:写 RED 测试;executor 改测试文件 = hash 校验拒绝迭代(结构级防自评) |
+| qa | 验收前 | 写(改动丢弃) | 跑 verify_hint/e2e 采证据喂 judge;judge 保持只读,跑东西的是 qa |
+| oracle | executor blocked 时 | 只读 | 每任务一次二意见,解不了才升人类 |
+| hunter | 首次验收通过后每里程碑一次 | 只读 | 占位符/mock 清剿,发现→计入重设计轮次回灌 replan |
+| cleaner | hunt 后每里程碑一次 | 写 | deslop;回归门失败整体丢弃,永不阻塞里程碑 |
+| summarizer | 每次 escalate | 只读 | AWAITING_HUMAN.md 的运行摘要(防 comprehension rot;便宜模型) |
+| dispatcher | 每次 replan 后 | 只写 plan.md | 重打 `[agent:]` 标签;去标签 diff 校验,越权即恢复原计划 |
+| merger | 预留 | — | 并行 L1 的合并者(Gas Town 模式);单线编排器忽略 |
+
+全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → summarize → human`。
+设计约束:每个角色的越权行为都有**结构性**检查(hash / 去标签 diff / clean_tree 回滚),不靠提示词自觉。
+
 ## 10. Skill 交付形态
 
 ```

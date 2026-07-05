@@ -34,7 +34,7 @@ probe() {
   out="$VLOOP_DIR/backends.json"
   tmp="$out.tmp.$$"
   echo '{}' > "$tmp"
-  for role in executor judge planner; do
+  for role in $(jq -r '.backends | keys[]' "$CONFIG" | grep -v '^pool$'); do
     b=$(cfg ".backends.$role.backend // empty"); [ -n "$b" ] || continue
     command -v "$b" >/dev/null 2>&1 || die "backend '$b' (role $role) not on PATH"
     ver=$("$b" --version 2>/dev/null | head -1)

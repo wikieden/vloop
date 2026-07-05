@@ -44,6 +44,12 @@ L1 executes one task per fresh-context iteration → L2 judges against acceptanc
 - **File handoffs**: pass artifacts as file paths, never paste bulk output into prompts or keep it in orchestrator context.
 - **L3 action classes always gate**: merge, deploy, publish, delete, charge, close — no exceptions, regardless of config.
 
+## Roles
+
+Core (always on): **planner** (writes plan.md) · **executor** (one task per fresh-context iteration; per-task `[agent:]` override) · **judge** (heterogeneous, read-only, sole source of `passes:true`) — plus the deterministic orchestrator and the human at L3.
+
+Optional (activate by adding to `loop.json` `backends.<role>`; see `templates/loop.json` `_optional_roles_reference`): **vetter** (one-shot PRD review before planning; blocking findings pause for the human) · **tester** (TDD split — writes RED tests the executor must pass and may NOT modify, hash-enforced) · **qa** (runs verify_hints/e2e before the judge, records evidence) · **oracle** (one consult per blocked task before human escalation) · **hunter** (post-acceptance placeholder/mock sweep → one bounded replan round) · **cleaner** (post-acceptance deslop; discarded on regression, never blocks) · **summarizer** (run summary into AWAITING_HUMAN.md; cheap model) · **dispatcher** (re-tags `[agent:]` routing after replans; tag-only, diff-enforced). Phase order with all active: vet → [tester→executor]×N → qa → accept → hunt → deslop → summarize → human.
+
 ## State files
 
 `loop.json` (config) · `prd.json` (stories + acceptance ratchet) · `plan.md` (task checkboxes) · `progress.md` (append-only ledger) · `AGENT.md` (build/run knowledge, no status reports) · `state.json` (phase/counters/cost) · `verdict.json` (per-iteration) · `AWAITING_HUMAN.md` (L3 pause artifact) · `decisions.md` (append-only audit) · `runs/iter-N/` (raw outputs).

@@ -15,6 +15,8 @@ L1 Execute loop      one task per fresh-context iteration → backpressure gates
 
 **Core principle: every layer's "done" is only a claim until the layer outside confirms it.**
 
+Three core roles (planner / executor / judge) plus eight opt-in specialist roles — **vetter** (PRD review), **tester** (TDD split: test author ≠ implementer, hash-enforced), **qa** (e2e evidence runner), **oracle** (blocker second-opinion), **hunter** (post-acceptance placeholder sweep), **cleaner** (deslop pass), **summarizer** (human-handoff digest), **dispatcher** (task→backend routing). Full pipeline when everything is on: `vet → [tester→executor]×N → qa → judge → hunt → deslop → summarize → human`. Enable any subset via `loop.json`.
+
 - Verdicts are schema-validated files, not magic strings (sentinels get faked; agents lie to exit loops).
 - The judge runs on a *different* backend in a *physically read-only* mode — an implementer must never grade its own homework, and a judge with write access may fix-to-pass.
 - Every layer is hard-capped: max iterations, max redesign rounds (≤3 — cross-model review loops diverge past that), budget USD, per-iteration timeout, plus a circuit breaker (3 no-progress / 5 same-error iterations).

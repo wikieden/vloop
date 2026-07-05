@@ -1,6 +1,22 @@
 # Loop Protocol — L1/L2/L3 执行手册
 
-Mode A: the Claude Code session follows this protocol as orchestrator, invoking backends via Bash per adapters.md. Mode B: `scripts/vloop.sh` implements the same protocol. State transitions live in `.vloop/state.json` (atomic writes: tmp + mv); phases: `implement | accept | replan | awaiting_human | done | cancelled`.
+Mode A: the Claude Code session follows this protocol as orchestrator, invoking backends via Bash per adapters.md. Mode B: `scripts/vloop.sh` implements the same protocol. State transitions live in `.vloop/state.json` (atomic writes: tmp + mv); phases: `vet | implement | accept | hunt | deslop | replan | awaiting_human | done | cancelled` (vet/hunt/deslop only exist when their optional roles are configured).
+
+## Optional roles (all opt-in via `loop.json` `backends.<role>`)
+
+| Role | Phase/hook | Access | Contract |
+|---|---|---|---|
+| **vetter** | `vet` — once, before first planning | read-only | Reviews PRD against security/data/perf/falsifiability checklist. `blocking:true` → escalate to human; else findings append to decisions.md. Anti-pattern it kills: unvetted PRDs silently missing whole quality dimensions. |
+| **tester** | inside L1, before each executor call | write | Writes RED tests for the assigned task. Orchestrator hashes the files it touched; if the executor then modifies any of them → failed iteration ("never grade your own homework", enforced structurally, not by prompt). `blocked` verdict escalates. |
+| **qa** | start of `accept`, before the judge | write (discarded) | Executes verify_hints/e2e/browser flows, writes `.vloop/runs/qa-evidence.md` for the judge's `{{QA_EVIDENCE}}`. Any code changes it leaves are rolled back — evidence only. Judge stays read-only; qa does the running. |
+| **oracle** | on executor `blocked` verdict | read-only | ONE consult per task (state.oracle_task) before human escalation. Advice injected as next iteration's feedback; `ESCALATE:` prefix or empty answer → straight to human. |
+| **hunter** | `hunt` — after first acceptance pass, once per milestone | read-only | Sweeps the milestone diff for placeholders/stubs/mocks/assertion-free tests. Findings → judge-feedback → one replan round (counts toward max_redesign_rounds; cap exhaustion escalates instead). Clean → proceed. |
+| **cleaner** | `deslop` — after hunt (or acceptance), once per milestone | write | Behavior-neutral slop cleanup, then full gate re-run: green → `vloop(deslop)` commit; regression → entire pass discarded via clean_tree. Never blocks the milestone. |
+| **summarizer** | inside every `escalate()` | read-only | Produces the "Run summary" section of AWAITING_HUMAN.md from commits+progress (comprehension-rot guard). Failure degrades silently to the mechanical summary. Cheap model recommended. |
+| **dispatcher** | end of `replan`, after the planner | write (plan.md only) | Re-tags `[agent:]` routing. Structurally constrained: orchestrator diffs the plan with tags stripped — any change beyond tags restores the planner's version. |
+| **merger** | RESERVED | — | Integrates parallel L1 lanes (Gas Town pattern). The single-lane orchestrator ignores it; defined so configs are forward-compatible if/when parallel lanes land. |
+
+Full pipeline order when everything is on: `vet → [tester → executor]×N → qa → judge → hunt → deslop → summarizer → human`. Every role is independent — enable any subset.
 
 ## Orchestrator context discipline (Mode A)
 

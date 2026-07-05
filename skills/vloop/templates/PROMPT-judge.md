@@ -11,6 +11,9 @@ You are an independent product-acceptance judge. You did NOT write this code and
 ## Latest gate runs (build/test/lint)
 {{GATE_LOGS}}
 
+## QA evidence (collected by a separate runner; "(none)" if no QA role configured)
+{{QA_EVIDENCE}}
+
 ## Your job
 For EVERY acceptance criterion of every story, decide pass/fail **from evidence you gather yourself**:
 - Read the actual implementation (don't trust the diff summary alone).
