@@ -1,6 +1,6 @@
 {
   "name": "vloop-skill",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Three-layer closed-loop engineering skill for AI coding agents (plan-execute / acceptance-redesign / human-review). Installs into 40+ SKILL.md-compatible hosts: claude, codex, opencode, cursor, gemini, copilot, droid, zcode, antigravity, and more.",
   "bin": {
     "vloop-skill": "bin/vloop-skill.js"

@@ -111,6 +111,8 @@ npx vloop-skill run    # 无人值守三层循环；退出码 42 = 等人类 rev
 
 把 `/vloop` 换成上表你所用宿主的调用方式即可 —— 底层协议处处一致。
 
+**默认运行形态:单 agent 内分层。**向导默认整个闭环就跑在你当前所在的宿主上,按档位分角色——强档模型/effort 做规划和只读验收,标准档执行(claude 上 fable-5/sonnet-5;codex 上 xhigh/medium effort)。一个 CLI,零跨厂商配置。跨 agent 混合(不同角色/任务不同 CLI)是进阶选项,用于需要更强验收隔离或任务级路由的场景。
+
 ## 已验证
 
 - 端到端 mock 测试（shim backend）：L1 commit 棘轮/勾任务 → L2 只读 judge 判决提取 + passes 棘轮 → L3 暂停产物 + 退出码 42 ✓

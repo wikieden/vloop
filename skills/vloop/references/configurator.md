@@ -47,8 +47,24 @@ Pool entries may point at a *different backend entirely* — here a codex-planne
 ## Round 1 — 闭环形态 (≤5 questions, multiple choice)
 
 1. **验收来源** — A. 已有 PRD/spec 文件（给路径） B. 现场访谈生成 PRD（追加一轮 3-5 问的 PRD 访谈，snarktank 风格） C. GOAL.md 标量指标型（要求用户定义指标计算命令；警告 Goodhart 风险：指标计算器必须是 agent 不可修改的文件，列入 gates）
-2. **Executor backend** — 探测到的 CLI 列表 + 模型选择
-3. **Judge backend** — 探测到的列表（默认预选 ≠ executor 的最强者）+ D. 厂商评审器（codex exec review）。**只有具备只读模式的 backend 可当 judge**：claude / codex / gemini / qwen / copilot / cursor-agent / droid / kiro-cli / opencode(--agent plan)。amp / goose / aider 无只读模式，不得列为 judge 选项。
+2. **运行形态** —
+   - **A. 单 agent 内分层（默认，首选推荐）**：整个闭环只用**当前宿主自家的 CLI**，靠不同模型/effort 区分角色。你（正在跑这个向导的 agent）知道自己是谁——Claude Code → `claude`，Codex → `codex`，opencode → `opencode`，以此类推；把自家 CLI 预选为唯一 backend。只需一个 CLI 已装已登录，零跨厂商依赖。选 A 后**跳过 Q3/Q4 的 backend 选择**，改为一问确认分层模型（见下方预设表），judge 一律 readonly。
+   - B. 跨 agent 混合：不同角色/任务用不同 CLI（原有流程，继续 Q3/Q4）。
+3. **Executor backend**（仅形态 B）— 探测到的 CLI 列表 + 模型选择
+4. **Judge backend**（仅形态 B）— 探测到的列表（默认预选 ≠ executor 的最强者）+ D. 厂商评审器（codex exec review）。**只有具备只读模式的 backend 可当 judge**：claude / codex / gemini / qwen / copilot / cursor-agent / droid / kiro-cli / opencode(--agent plan)。amp / goose / aider 无只读模式，不得列为 judge 选项。
+
+**形态 A 的分层预设表**（planner/judge 用强档，executor 用标准档；judge 永远 readonly；有 effort 字段的 backend 优先用 effort 分层）：
+
+| 宿主 CLI | planner / judge | executor | 分层维度 |
+|---|---|---|---|
+| claude | `claude-fable-5` | `claude-sonnet-5` | model |
+| codex | effort `xhigh` | effort `medium` | effort（同一 model） |
+| copilot | effort `xhigh` | effort `medium` | effort |
+| kiro-cli | effort `xhigh` | effort `medium` | effort |
+| droid | effort `high` | effort `medium` | effort（`-r`） |
+| gemini / qwen / opencode / cursor-agent | 该家最强 model | 该家标准 model | model |
+
+同时写入 `pool.hard = { planner 同档配置 }`，供 planner 给难任务打 `[agent: hard]`。单 agent 内分层的隔离性弱于跨厂商（同厂商偏好共享），judge 只读 + 跨模型仍保住"不给自己作业打分"——向导要如实说明这一句。
 4. **反压门 (gates)** — A. 自动探测（package.json scripts.test/lint/build、Makefile、cargo check/test） B. 手填命令数组 C. aider 微循环托管（仅 executor=aider）。探测结果必须回显给用户确认。
 5. **运行模式** — A. 会话内 Mode A（可观察、首跑推荐） B. 无人值守 Mode B（过夜/systemd）
 

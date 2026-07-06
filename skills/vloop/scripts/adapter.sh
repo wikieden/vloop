@@ -180,6 +180,7 @@ invoke() {
       elif [ "$danger" = "true" ]; then set -- "$@" --skip-permissions-unsafe
       else set -- "$@" --auto medium; fi
       [ -n "$model" ] && set -- "$@" -m "$model"
+      [ -n "$effort" ] && set -- "$@" -r "$effort"
       run_with_timeout "$tmo" droid "$@" < /dev/null > "$so" 2> "$se"
       rc=$?
       ;;

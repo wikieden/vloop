@@ -25,7 +25,7 @@ L1 executes one task per fresh-context iteration → L2 judges against acceptanc
 
 ## Routing
 
-1. **No `.vloop/loop.json`** → always run setup first. Read [references/configurator.md](references/configurator.md) and follow it exactly: two rounds, ≤5 multiple-choice questions each (AskUserQuestion in interactive sessions), answers persisted to files, never left in conversation.
+1. **No `.vloop/loop.json`** → always run setup first. Read [references/configurator.md](references/configurator.md) and follow it exactly: two rounds, ≤5 multiple-choice questions each (AskUserQuestion in interactive sessions), answers persisted to files, never left in conversation. **Default run shape is single-agent tiered**: the whole loop runs on YOUR host's own CLI (you know which host you are), with roles split by model/effort tier — cross-agent mixing is the opt-in alternative, not the default.
 2. **`run` (Mode A)** → read [references/loop-protocol.md](references/loop-protocol.md) and execute it as orchestrator. Invoke backends per [references/adapters.md](references/adapters.md). Before the first iteration, check every item in [references/pitfalls.md](references/pitfalls.md).
 3. **`run --unattended` (Mode B)** → verify `loop.json` exists, verify backend capability manifest (`.vloop/backends.json`, regenerate via `scripts/adapter.sh probe` if stale), then:
    ```bash

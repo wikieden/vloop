@@ -129,6 +129,8 @@ Replace `/vloop` with your host's invocation style from the table above — the 
 
 The configurator interviews you with lettered options (answer compactly: "1A 2C"), detects installed backends and gates, and refuses to start without every cap set — an unbounded loop is a config error, not a preference.
 
+**Default run shape: single-agent tiered.** The wizard defaults to running the whole loop on the host you're already in, splitting roles by tier — strong model/effort plans and judges (read-only), standard tier executes (e.g. fable-5/sonnet-5 on claude; xhigh/medium effort on codex). One CLI, zero cross-vendor setup. Mixing different agent CLIs per role/task is the opt-in alternative for when you want stronger judge isolation or per-task routing.
+
 ## Verified
 
 - End-to-end mock test (shim backends): L1 commit ratchet + task ticking → L2 read-only judge verdict extraction + `passes` ratchet → L3 pause artifact (`AWAITING_HUMAN.md` with cost ledger, commits, lettered questions) + exit 42 ✓
