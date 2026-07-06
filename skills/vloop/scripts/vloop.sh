@@ -220,13 +220,57 @@ run_gates() { # run_gates <outdir> ; returns 0 green / 1 fail
   return 0
 }
 
-# After acceptance passes: optional hunt -> deslop -> harvest -> milestone escalation
+# Deterministic risk classifier (script, not LLM — auditability). Prints "LOW"
+# or "HIGH: <reasons>". Action-class gates (merge/deploy/...) are unaffected —
+# auto-approval only ends the loop's own review queue entry; merging stays human.
+classify_risk() {
+  BASE_C="$(sget '.base_commit')" CONFIG_F="$CONFIG" TRIPS="$(sget '.breaker_trips')" python3 - <<'PY'
+import json, os, subprocess
+cfg = json.load(open(os.environ["CONFIG_F"]))
+aa = (cfg.get("l3_gates") or {}).get("auto_approve") or {}
+max_lines = aa.get("max_diff_lines", 200)
+max_files = aa.get("max_files", 10)
+sens = aa.get("sensitive_paths", ["auth","secret","token","credential","password","payment","billing","crypto",
+                                  ".github/","infra/","deploy","Dockerfile","migration",".env"])
+base = os.environ["BASE_C"]
+try:
+    out = subprocess.run(["git","diff","--numstat",f"{base}..HEAD"], capture_output=True, text=True, timeout=30).stdout
+except Exception:
+    print("HIGH: diff unavailable"); raise SystemExit
+lines = 0; files = []
+for row in out.splitlines():
+    p = row.split("\t")
+    if len(p) == 3:
+        a, d, f = p
+        lines += (0 if a == "-" else int(a)) + (0 if d == "-" else int(d))
+        files.append(f)
+reasons = []
+if lines > max_lines: reasons.append(f"{lines} changed lines > {max_lines}")
+if len(files) > max_files: reasons.append(f"{len(files)} files > {max_files}")
+hits = sorted({f for f in files for s in sens if s.lower() in f.lower()})
+if hits: reasons.append("sensitive paths: " + ", ".join(hits[:5]))
+if int(os.environ["TRIPS"] or 0) > 0: reasons.append("circuit breaker tripped during run")
+print("LOW" if not reasons else "HIGH: " + "; ".join(reasons))
+PY
+}
+
+# After acceptance passes: optional hunt -> deslop -> harvest -> risk-classed finish
 milestone_gate() {
   r=$(sget '.round')
   if role_on hunter && [ "$(sget '.hunt_done // false')" != "true" ]; then sset '.phase="hunt"'; return; fi
   if role_on cleaner && [ "$(sget '.deslop_done // false')" != "true" ]; then sset '.phase="deslop"'; return; fi
   if role_on harvester && [ "$(sget '.harvest_done // false')" != "true" ]; then sset '.phase="harvest"'; return; fi
-  escalate "milestone complete — all stories accepted; review the branch" "$VLOOP_DIR/runs/accept-$r/report.md"
+  risk=$(classify_risk)
+  echo "- risk classification: $risk" >> "$VLOOP_DIR/runs/accept-$r/report.md" 2>/dev/null
+  if [ "$(cfg '.l3_gates.auto_approve.enabled // false')" = "true" ] && [ "$risk" = "LOW" ]; then
+    printf '%s AUTO-APPROVED milestone round %s (risk: LOW — deterministic classifier; merge remains human)\n' \
+      "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$r" >> "$VLOOP_DIR/decisions.md"
+    notify_human "vloop: milestone AUTO-APPROVED (low risk) — branch ready; merge at your leisure"
+    log "milestone AUTO-APPROVED (risk: LOW) — review queue skipped, merge remains a human action"
+    sset '.phase="done"'
+    return
+  fi
+  escalate "milestone complete — all stories accepted; review the branch (risk: $risk)" "$VLOOP_DIR/runs/accept-$r/report.md"
 }
 
 # Orchestrator (not the agent) deterministically picks the next task — top to
@@ -266,6 +310,12 @@ do_implement() {
   mwh=$(cfg '.caps.max_wall_hours // 12')
   welapsed=$(( $(date +%s) - $(sget '.started_epoch') ))
   [ "$welapsed" -gt $(( mwh * 3600 )) ] && { escalate "hard wall-clock budget (${mwh}h) exhausted"; return; }
+  # optional token cap (composable stop conditions: first cap hit stops the run)
+  mtk=$(cfg '.caps.max_tokens_total // 0')
+  if [ "$mtk" != "0" ] && [ "$mtk" != "null" ]; then
+    tok=$(jq '[.ledger[] | ((.tok_in // 0) + (.tok_out // 0))] | add // 0' "$STATE")
+    [ "$tok" -gt "$mtk" ] && { escalate "token budget exhausted ($tok > $mtk tokens)"; return; }
+  fi
 
   outdir="$VLOOP_DIR/runs/iter-$it"; mkdir -p "$outdir"
   [ -n "$(git status --porcelain)" ] && { log "dirty tree from failed iteration — rolling back"; clean_tree; }
@@ -437,6 +487,46 @@ do_accept() {
     [ -n "$(git status --porcelain)" ] && { log "qa runner left code changes — discarding (qa is evidence-only)"; clean_tree; }
   fi
 
+  # optional held-out tests: a generator on a DIFFERENT backend writes tests the
+  # executor has never seen, regenerated fresh every round — anti-cheating one
+  # level above hash-protection: you can't game tests you can't see
+  holdout_rc=0
+  if role_on holdout; then
+    hdir="$VLOOP_DIR/holdout/round-$r"; rm -rf "$hdir"; mkdir -p "$hdir"
+    hodir="$VLOOP_DIR/runs/holdout-$r"; mkdir -p "$hodir"
+    render "$TPL_DIR/PROMPT-holdout.md" "$hodir/prompt.md" \
+      "PRD=@$VLOOP_DIR/prd.json" "AGENT_MD=@$VLOOP_DIR/AGENT.md" "ROUND=$r" "HOLDOUT_DIR=$hdir"
+    log "L2: invoking holdout generator (fresh unseen tests, round $r)"
+    rm -f "$VLOOP_DIR/verdict.json"
+    "$ADAPTER" invoke holdout "$hodir/prompt.md" "$hodir"
+    ledger_add "$hodir"
+    [ -n "$(git status --porcelain)" ] && { log "holdout generator left repo changes — discarding (quarantine dir only)"; clean_tree; }
+    if [ -f "$hdir/run.sh" ]; then
+      if sh "$hdir/run.sh" > "$hodir/run.log" 2>&1; then log "holdout: PASS"
+      else holdout_rc=1; log "holdout: FAIL — held-out tests reject this milestone"; fi
+      { echo; echo "## Held-out test results (round $r; generated fresh, never seen by the executor)"
+        echo "exit: $holdout_rc"; tail -100 "$hodir/run.log"; } >> "$VLOOP_DIR/runs/qa-evidence.md"
+    else
+      log "holdout generator produced no run.sh — advisory skip"
+    fi
+  fi
+
+  # executable acceptance checks: deterministic milestone-level verifiers running
+  # alongside the LLM judge — exit codes decide, judge opinion never outranks them
+  accept_checks_rc=0
+  n_ac=$(cfg '.acceptance_checks | length'); { [ -z "$n_ac" ] || [ "$n_ac" = "null" ]; } && n_ac=0
+  a=0
+  while [ "$a" -lt "$n_ac" ]; do
+    acname=$(cfg ".acceptance_checks[$a].name"); accmd=$(cfg ".acceptance_checks[$a].cmd")
+    log "acceptance check: $acname"
+    if ! sh -c "$accmd" > "$outdir/check-$acname.log" 2>&1; then
+      accept_checks_rc=1
+      { echo; echo "## Acceptance check FAILED: $acname ($accmd)"; tail -100 "$outdir/check-$acname.log"; } >> "$VLOOP_DIR/runs/qa-evidence.md"
+      log "acceptance check $acname: FAIL"
+    fi
+    a=$((a+1))
+  done
+
   base=$(sget '.base_commit')
   { git diff --stat "$base..HEAD"; echo; git diff "$base..HEAD" | head -c 120000; } > "$outdir/diff.txt" 2>/dev/null
   ls "$VLOOP_DIR"/runs/iter-*/gate-*.log 2>/dev/null | tail -5 | while read -r f; do echo "== $f =="; tail -20 "$f"; done > "$outdir/gates.txt"
@@ -453,8 +543,13 @@ do_accept() {
   [ -f "$VLOOP_DIR/acceptance.json" ] || extract_json "$outdir/out.json" "$VLOOP_DIR/acceptance.json"
   [ -f "$VLOOP_DIR/acceptance.json" ] || { log "no parseable judge verdict — counting as failed round"; echo '{"stories":[],"summary":"judge produced no verdict"}' > "$VLOOP_DIR/acceptance.json"; }
 
-  # ratchet: ONLY here does passes flip to true, only on judge sign-off
-  PRD="$VLOOP_DIR/prd.json" ACC="$VLOOP_DIR/acceptance.json" python3 - <<'PY'
+  structural_fail=false
+  { [ "$holdout_rc" -ne 0 ] || [ "$accept_checks_rc" -ne 0 ]; } && structural_fail=true
+
+  if [ "$structural_fail" = "false" ]; then
+    # ratchet: ONLY here does passes flip to true — judge sign-off AND structural
+    # evidence green. A judge pass never outranks failing executable checks.
+    PRD="$VLOOP_DIR/prd.json" ACC="$VLOOP_DIR/acceptance.json" python3 - <<'PY'
 import json, os
 prd_p = os.environ["PRD"]
 prd, acc = json.load(open(prd_p)), json.load(open(os.environ["ACC"]))
@@ -467,23 +562,26 @@ failed = [s["id"] for s in prd["stories"] if not s["passes"]]
 print("PASSED" if not failed else "FAILED:" + ",".join(failed))
 PY
 
-  if ! jq -e '.stories[] | select(.passes==false)' "$VLOOP_DIR/prd.json" >/dev/null 2>&1; then
-    { echo "## Acceptance report (round $r) — ALL STORIES PASS"; jq -r '.summary' "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
-    sset '.judge_stale = 0 | .last_judge_sig = ""'
-    milestone_gate
-    return
-  fi
+    if ! jq -e '.stories[] | select(.passes==false)' "$VLOOP_DIR/prd.json" >/dev/null 2>&1; then
+      { echo "## Acceptance report (round $r) — ALL STORIES PASS"; jq -r '.summary' "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+      sset '.judge_stale = 0 | .last_judge_sig = ""'
+      milestone_gate
+      return
+    fi
 
-  # review stalemate breaker: identical failing findings N rounds running means
-  # judge/executor deadlock — the executor-side breakers can't see this
-  judge_sig=$(jq -S '[.stories[] | select(.overall != "pass") | {s: .story_id, c: [.criteria[]? | select(.pass | not) | .id]}]' "$VLOOP_DIR/acceptance.json" 2>/dev/null | shasum | cut -d' ' -f1)
-  if [ "$judge_sig" = "$(sget '.last_judge_sig // ""')" ]; then sset '.judge_stale += 1'
-  else sset ".judge_stale = 0 | .last_judge_sig = \"$judge_sig\""; fi
-  patience=$(cfg '.caps.review_patience // 2')
-  if [ "$(sget '.judge_stale')" -ge "$patience" ]; then
-    { echo "## Review stalemate — judge findings unchanged for $patience consecutive redesign rounds"; cat "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
-    escalate "review stalemate: identical judge findings across $((patience+1)) rounds (judge/executor deadlock)" "$outdir/report.md"
-    return
+    # review stalemate breaker: identical failing findings N rounds running means
+    # judge/executor deadlock — the executor-side breakers can't see this
+    judge_sig=$(jq -S '[.stories[] | select(.overall != "pass") | {s: .story_id, c: [.criteria[]? | select(.pass | not) | .id]}]' "$VLOOP_DIR/acceptance.json" 2>/dev/null | shasum | cut -d' ' -f1)
+    if [ "$judge_sig" = "$(sget '.last_judge_sig // ""')" ]; then sset '.judge_stale += 1'
+    else sset ".judge_stale = 0 | .last_judge_sig = \"$judge_sig\""; fi
+    patience=$(cfg '.caps.review_patience // 2')
+    if [ "$(sget '.judge_stale')" -ge "$patience" ]; then
+      { echo "## Review stalemate — judge findings unchanged for $patience consecutive redesign rounds"; cat "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+      escalate "review stalemate: identical judge findings across $((patience+1)) rounds (judge/executor deadlock)" "$outdir/report.md"
+      return
+    fi
+  else
+    log "structural acceptance evidence failed (holdout=$holdout_rc checks=$accept_checks_rc) — passes ratchet withheld"
   fi
 
   rr=$(sget '.redesign_rounds'); maxrr=$(cfg '.caps.max_redesign_rounds')
@@ -494,7 +592,14 @@ PY
     return
   fi
   # failed criteria + evidence become planner input
-  jq '{summary, failed: [.stories[] | select(.overall != "pass")]}' "$VLOOP_DIR/acceptance.json" > "$VLOOP_DIR/runs/judge-feedback.txt"
+  if [ "$structural_fail" = "true" ]; then
+    { echo "STRUCTURAL ACCEPTANCE FAILURE — executable evidence rejected the milestone (judge verdict below is secondary):"
+      cat "$VLOOP_DIR/runs/qa-evidence.md" 2>/dev/null
+      echo; echo "-- judge verdict --"; jq -r '.summary // "n/a"' "$VLOOP_DIR/acceptance.json" 2>/dev/null
+    } > "$VLOOP_DIR/runs/judge-feedback.txt"
+  else
+    jq '{summary, failed: [.stories[] | select(.overall != "pass")]}' "$VLOOP_DIR/acceptance.json" > "$VLOOP_DIR/runs/judge-feedback.txt"
+  fi
   log "L2: acceptance failed -> replan (redesign round $((rr+1))/$maxrr)"
   sset '.phase="replan"'
 }

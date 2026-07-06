@@ -33,7 +33,19 @@
     "action_classes": true,
     "milestone": true,
     "timed_pause_hours": 2,
-    "on_escalation": true
+    "on_escalation": true,
+    "auto_approve": {
+      "enabled": false,
+      "_comment": "when enabled, a milestone classified LOW risk by the deterministic classifier (small diff, few files, no sensitive paths, no breaker trips) completes without waiting for human review — merging stays human. Review queue is the 2026 bottleneck; this is the Ona pattern.",
+      "max_diff_lines": 200,
+      "max_files": 10,
+      "sensitive_paths": ["auth", "secret", "token", "credential", "password", "payment", "billing", "crypto", ".github/", "infra/", "deploy", "Dockerfile", "migration", ".env"]
+    }
+  },
+  "acceptance_checks": [],
+  "_acceptance_checks_reference": {
+    "_comment": "executable milestone-level verifiers run at L2 alongside the LLM judge; exit code decides and a judge pass NEVER outranks a failing check. Unlike gates (per-iteration, fast), these run once per acceptance round (can be slow: e2e, smoke deploys).",
+    "_example": [ { "name": "e2e", "cmd": "npm run test:e2e" } ]
   },
   "resume_strategy": "fresh",
   "notify": { "type": "none", "target": "" },
@@ -48,6 +60,7 @@
     "summarizer": { "backend": "claude", "model": "claude-haiku-4-5-20251001", "readonly": true, "_when": "writes the run summary into AWAITING_HUMAN.md (cheap model)" },
     "dispatcher": { "backend": "claude", "_when": "re-tags [agent:] routing after each replan; may only touch tags (diff-checked)" },
     "harvester":  { "backend": "claude", "_when": "post-acceptance learning extraction into .vloop/AGENT.md + learnings.md; repo changes discarded; knowledge compounds across runs" },
+    "holdout":    { "backend": "codex", "_when": "generates acceptance tests the executor has NEVER seen, fresh each round, quarantined in .vloop/holdout/; failures structurally reject the milestone regardless of judge opinion — use a backend different from the executor" },
     "merger":     { "backend": "claude", "_when": "RESERVED: integrates parallel lanes; ignored by the single-lane orchestrator" }
   }
 }

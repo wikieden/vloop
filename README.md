@@ -17,7 +17,9 @@ L1 Execute loop      one task per fresh-context iteration → backpressure gates
 
 Three core roles (planner / executor / judge) plus nine opt-in specialist roles — **vetter** (PRD review), **tester** (TDD split: test author ≠ implementer, hash-enforced), **qa** (e2e evidence runner), **oracle** (blocker second-opinion), **hunter** (post-acceptance placeholder sweep), **cleaner** (deslop pass), **harvester** (learning extraction — knowledge compounds across runs), **summarizer** (human-handoff digest), **dispatcher** (task→backend routing). Full pipeline when everything is on: `vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`. Enable any subset via `loop.json`.
 
-Guardrails beyond iteration caps: baseline-delta gates for dirty repos (only NEW failures block), liveness watchdog (no-output kill), hard run wall-clock budget, and review-stalemate detection (identical judge findings = deadlock, not progress).
+Guardrails beyond iteration caps: baseline-delta gates for dirty repos (only NEW failures block), liveness watchdog (no-output kill), hard run wall-clock/token budgets, and review-stalemate detection (identical judge findings = deadlock, not progress).
+
+Acceptance hardening: an opt-in **holdout** role generates tests the executor has *never seen*, fresh each round — you can't game tests you can't see; `acceptance_checks[]` are executable milestone verifiers whose exit codes outrank the judge. Opt-in **risk-classed auto-approval** lets a deterministic classifier pass LOW-risk milestones (small diff, no sensitive paths, clean run) without blocking on human review — merge and deploy remain human, always.
 
 - Verdicts are schema-validated files, not magic strings (sentinels get faked; agents lie to exit loops).
 - The judge runs on a *different* backend in a *physically read-only* mode — an implementer must never grade its own homework, and a judge with write access may fix-to-pass.

@@ -106,6 +106,10 @@
 
 **目标**：人类是唯一能改需求、批准不可逆动作的角色。防四风险：verification debt / comprehension rot / cognitive surrender / token blowout。
 
+**风险分级自动批准**（可选,`l3_gates.auto_approve`）：里程碑完成时**确定性脚本分类器**（非 LLM,可审计）按分支 diff 判风险 —— 行数 ≤ 上限、文件数 ≤ 上限、零敏感路径命中、零熔断记录 → LOW → 不阻塞等人直接完成（决策落 decisions.md + 通知;merge/deploy 依旧人类动作类门）。其余 → HIGH 带明确原因进人类队列。依据:2026 实证瓶颈已是评审队列,人类注意力只花在高风险变更上。
+
+**可执行验收检查**（`acceptance_checks[]`）：里程碑级校验命令,退出码定生死,judge 通过也压不过失败的检查 —— 棘轮被扣住,反馈以可执行证据开头。
+
 **触发（gate 点）**：
 1. **动作类**（不可配置豁免）：merge、deploy、publish、delete、对外收费、关 issue。
 2. **里程碑**：L2 全部通过（验收报告就绪）。
@@ -218,6 +222,7 @@
 | summarizer | 每次 escalate | 只读 | AWAITING_HUMAN.md 的运行摘要(防 comprehension rot;便宜模型) |
 | dispatcher | 每次 replan 后 | 只写 plan.md | 重打 `[agent:]` 标签;去标签 diff 校验,越权即恢复原计划 |
 | harvester | deslop 后每里程碑一次 | 只写 .vloop 知识文件 | 学习收割进 AGENT.md + learnings.md(知识跨 run 复利);碰仓库代码即丢弃 |
+| holdout | 每轮验收开头 | 只写 .vloop/holdout 隔离区 | 每轮新生成 executor 从未见过的黑盒验收测试;run.sh 非零退出**结构性**否决里程碑,judge 意见无权推翻 |
 | merger | 预留 | — | 并行 L1 的合并者(Gas Town 模式);单线编排器忽略 |
 
 全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`。

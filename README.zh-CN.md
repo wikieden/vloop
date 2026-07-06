@@ -12,7 +12,9 @@ L1 计划执行环    每轮新鲜上下文做一个任务 → 反压门(build/t
 
 核心机制：**每层的"完成"只能由外层确认**。核心三角色(planner/executor/judge)外还有九个可选专职角色——**vetter**(PRD 审查)、**tester**(TDD 分离:写测试的≠写代码的,hash 强制)、**qa**(e2e 证据采集)、**oracle**(卡点二意见)、**hunter**(验收后占位符清剿)、**cleaner**(deslop)、**harvester**(学习收割,知识跨 run 复利)、**summarizer**(人类交接摘要)、**dispatcher**(任务路由)。全开时流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`,任意子集可选。
 
-迭代上限之外的护栏:脏仓库 baseline-delta 门(只拦新增失败)、活性看门狗(无输出击杀)、硬墙钟预算、评审僵局熔断(judge 判决原地踏步 = 死锁不是进展)。verdict 是 schema 校验的文件而非魔法字符串；judge 与 executor 不同 backend 且物理只读；每层有硬上限（迭代/重设计轮次/预算/超时）+ 熔断器；人类门按动作类别（merge/deploy/publish/delete/charge/close）不可关闭。
+迭代上限之外的护栏:脏仓库 baseline-delta 门(只拦新增失败)、活性看门狗(无输出击杀)、硬墙钟/token 预算、评审僵局熔断(judge 判决原地踏步 = 死锁不是进展)。
+
+验收加固:可选 **holdout** 角色每轮新生成 executor **从未见过**的测试 —— 看不见的测试没法作弊;`acceptance_checks[]` 是可执行里程碑校验,退出码压过 judge 意见。可选**风险分级自动批准**:确定性分类器放行低风险里程碑(小 diff、无敏感路径、运行干净),不阻塞等人 —— merge/deploy 永远归人类。verdict 是 schema 校验的文件而非魔法字符串；judge 与 executor 不同 backend 且物理只读；每层有硬上限（迭代/重设计轮次/预算/超时）+ 熔断器；人类门按动作类别（merge/deploy/publish/delete/charge/close）不可关闭。
 
 ## 安装
 

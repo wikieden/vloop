@@ -15,6 +15,7 @@ Mode A: the Claude Code session follows this protocol as orchestrator, invoking 
 | **summarizer** | inside every `escalate()` | read-only | Produces the "Run summary" section of AWAITING_HUMAN.md from commits+progress (comprehension-rot guard). Failure degrades silently to the mechanical summary. Cheap model recommended. |
 | **dispatcher** | end of `replan`, after the planner | write (plan.md only) | Re-tags `[agent:]` routing. Structurally constrained: orchestrator diffs the plan with tags stripped — any change beyond tags restores the planner's version. |
 | **harvester** | `harvest` — after deslop, once per milestone | write (.vloop knowledge files only) | Distills the run's learnings into `.vloop/AGENT.md` (build/run knowledge) and `.vloop/learnings.md` (append-only, dated) — knowledge compounds across runs, transcripts don't. Repo changes discarded. |
+| **holdout** | start of every `accept` round | write (`.vloop/holdout/` quarantine only) | Generates black-box acceptance tests from the PRD that the executor has NEVER seen, fresh each round (randomized). `run.sh` exit ≠ 0 structurally rejects the milestone regardless of judge opinion. Use a backend ≠ executor. |
 | **merger** | RESERVED | — | Integrates parallel L1 lanes (Gas Town pattern). The single-lane orchestrator ignores it; defined so configs are forward-compatible if/when parallel lanes land. |
 
 Full pipeline order when everything is on: `vet → [tester → executor]×N → qa → judge → hunt → deslop → harvest → summarizer → human`. Every role is independent — enable any subset.
@@ -58,8 +59,12 @@ Verdict is a claim, not proof: `done` with unticked boxes or empty diff = failed
 
 ## L2 — accept phase
 
-1. **Invoke judge**: different backend, physically read-only (adapters.md readonly invocation). Prompt from `templates/PROMPT-judge.md` with `{{PRD}}`, `{{DIFF_STAT}}` (branch diff vs base, stat + capped diff), `{{GATE_LOGS}}` (latest green gate summary). Judge writes `.vloop/acceptance.json`: `{story_id, criteria: [{id, pass, evidence}], overall: pass|fail}` per story.
-2. **Ratchet**: for stories where ALL criteria pass → orchestrator (never the agent) sets `passes:true` in prd.json.
+0. **Structural evidence first** (both optional, both outrank the judge):
+   - **holdout** role configured → invoke the generator (different backend) to write fresh, never-seen-by-the-executor tests into `.vloop/holdout/round-R/` with a `run.sh` entry; orchestrator runs it — non-zero exit structurally rejects the round. Regenerated every round, so peeking at a stale round buys nothing.
+   - `acceptance_checks[]` in loop.json → run each command; any non-zero exit structurally rejects the round. These are milestone-level (once per acceptance, may be slow: e2e/smoke), unlike per-iteration gates.
+   - On structural failure: the passes ratchet is WITHHELD even if the judge says pass, and judge-feedback leads with the executable evidence. A model's opinion never outranks an exit code.
+1. **Invoke judge**: different backend, physically read-only (adapters.md readonly invocation). Prompt from `templates/PROMPT-judge.md` with `{{PRD}}`, `{{DIFF_STAT}}` (branch diff vs base, stat + capped diff), `{{GATE_LOGS}}` (latest green gate summary), `{{QA_EVIDENCE}}` (qa + holdout + check results). Judge writes `.vloop/acceptance.json`: `{story_id, criteria: [{id, pass, evidence}], overall: pass|fail}` per story.
+2. **Ratchet**: for stories where ALL criteria pass AND structural evidence is green → orchestrator (never the agent) sets `passes:true` in prd.json.
 3. **All stories pass** → write acceptance report to `runs/acceptance-R.md` → phase=awaiting_human (milestone gate).
 4. **Any fail** → `redesign_rounds++`:
    - `redesign_rounds > max_redesign_rounds` (default 3 — cross-model review loops diverge past ~3) → phase=awaiting_human with full failure report.
@@ -73,6 +78,8 @@ Verdict is a claim, not proof: `done` with unticked boxes or empty diff = failed
 3. Reset L1 counters (iteration budget for the round, breaker counters; global budget ledger persists). phase=implement.
 
 ## L3 — awaiting_human phase
+
+**Risk-classed auto-approval** (opt-in, `l3_gates.auto_approve.enabled`): at milestone completion a DETERMINISTIC classifier (script, not LLM — auditable) computes risk from the branch diff: changed lines ≤ `max_diff_lines`, files ≤ `max_files`, zero `sensitive_paths` matches, zero breaker trips → LOW → the milestone completes without blocking on human review (decision logged to decisions.md + notification sent; **merge/deploy remain human action-class gates regardless**). Anything else → HIGH with explicit reasons, normal human queue. Rationale: the review queue is the bottleneck — spend human attention on high-risk changes only. The risk line is appended to the acceptance report either way.
 
 On entering:
 1. Persist state.json.
