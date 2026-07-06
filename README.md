@@ -2,146 +2,132 @@
 
 English | [中文](README.zh-CN.md)
 
-A loop-engineering skill that runs AI coding agents in nested closed loops. Ships as a standard [Agent Skill](https://agentskills.io) (SKILL.md) — install once, works across **40+ hosts**. 12 supported loop backends: **claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid (Factory) · amp · qwen (Qwen Code) · goose · kiro-cli**.
+Run AI coding agents in nested closed loops that don't trust themselves. One skill, standard [Agent Skills](https://agentskills.io) format — install once, works in **40+ hosts** (Claude Code, Codex, Cursor, OpenCode, Gemini CLI, Copilot, ZCode, Antigravity, …). Orchestrates **12 backends**: claude · codex · opencode · gemini · aider · copilot · cursor-agent · droid · amp · qwen · goose · kiro-cli.
 
 ```
-L3 Human loop        review branch / update requirements (PRD) / roll back
-                     ← the only layer that may change requirements or approve irreversible actions
-L2 Acceptance loop   independent READ-ONLY judge (different backend) verifies every acceptance
-                     criterion; on failure a planner redesigns the plan and feeds L1 (≤3 rounds)
-L1 Execute loop      one task per fresh-context iteration → backpressure gates (build/test/lint)
-                     → green ⇒ commit (ratchet)
+L3  Human loop        review / update requirements (PRD) / roll back — the only layer
+                      that may change requirements or approve irreversible actions
+L2  Acceptance loop   held-out tests + executable checks + independent READ-ONLY judge
+                      (different backend); failure → planner redesigns → back to L1 (≤3 rounds)
+L1  Execute loop      one task per fresh-context iteration → backpressure gates
+                      (build/test/lint) → green ⇒ commit (ratchet)
 ```
 
-**Core principle: every layer's "done" is only a claim until the layer outside confirms it.**
+**Every layer's "done" is only a claim until the layer outside confirms it** — and a model's opinion never outranks an exit code.
 
-Three core roles (planner / executor / judge) plus nine opt-in specialist roles — **vetter** (PRD review), **tester** (TDD split: test author ≠ implementer, hash-enforced), **qa** (e2e evidence runner), **oracle** (blocker second-opinion), **hunter** (post-acceptance placeholder sweep), **cleaner** (deslop pass), **harvester** (learning extraction — knowledge compounds across runs), **summarizer** (human-handoff digest), **dispatcher** (task→backend routing). Full pipeline when everything is on: `vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`. Enable any subset via `loop.json`.
+## The verification stack
 
-Guardrails beyond iteration caps: baseline-delta gates for dirty repos (only NEW failures block), liveness watchdog (no-output kill), hard run wall-clock/token budgets, and review-stalemate detection (identical judge findings = deadlock, not progress).
+Agents fake completion: they quote magic strings, mark failing tests "probably unrelated", mock data past green checks, and talk reviewers into passing them. vloop stacks five independent defenses, each closing the previous one's bypass:
 
-Acceptance hardening: an opt-in **holdout** role generates tests the executor has *never seen*, fresh each round — you can't game tests you can't see; `acceptance_checks[]` are executable milestone verifiers whose exit codes outrank the judge. Opt-in **risk-classed auto-approval** lets a deterministic classifier pass LOW-risk milestones (small diff, no sensitive paths, clean run) without blocking on human review — merge and deploy remain human, always.
+| Layer | Mechanism | Closes |
+|---|---|---|
+| 1 | **Backpressure gates** per iteration (build/test/lint; serial, fast); `baseline: true` delta mode for dirty repos — only NEW failure signatures block | "it compiles" ≠ done |
+| 2 | **Schema-validated verdict files** + orchestrator-owned task assignment (verdict `task_id` must match; empty diff rejected) | magic-string sentinels, wrong-task drift |
+| 3 | **TDD hash protection** (opt-in `tester` role): test author ≠ implementer; modifying the tests fails the iteration structurally | self-graded homework |
+| 4 | **Held-out tests** (opt-in `holdout` role): black-box tests the executor has *never seen*, regenerated fresh every round; plus `acceptance_checks[]` executable verifiers — exit codes overrule the judge | gaming visible tests, sweet-talking the judge |
+| 5 | **Independent judge** on a *different backend* in a *physically read-only* mode + human action-class gates (merge/deploy/publish/delete/charge/close — never disableable) | fix-to-pass judges, unreviewed irreversible actions |
 
-- Verdicts are schema-validated files, not magic strings (sentinels get faked; agents lie to exit loops).
-- The judge runs on a *different* backend in a *physically read-only* mode — an implementer must never grade its own homework, and a judge with write access may fix-to-pass.
-- Every layer is hard-capped: max iterations, max redesign rounds (≤3 — cross-model review loops diverge past that), budget USD, per-iteration timeout, plus a circuit breaker (3 no-progress / 5 same-error iterations).
-- Human action-class gates (merge / deploy / publish / delete / charge / close) can never be disabled by config.
-- Rollback beats fix-forward: failed iterations are discarded; broken code contaminates later iterations.
+Runaway protection: per-iteration timeout, liveness watchdog (no-output kill), circuit breakers (3 no-progress / 5 same-error), review-stalemate detection (identical judge findings = deadlock), hard wall-clock / USD / token budgets. An unbounded loop is a config error — vloop refuses to start without every cap set.
 
-Design distilled from the Ralph technique (ghuntley), six open-source loop implementations analyzed at source level, HN practitioner consensus, and locally verified headless-CLI adapter mechanics. Full research digest in [docs/RESEARCH.md](docs/RESEARCH.md) (Chinese; sources are English).
+## Roles
 
-## Install
+Three core roles, ten opt-in specialists — enable any subset in `loop.json`:
+
+| | Role | Does |
+|---|---|---|
+| core | **planner** | writes/redesigns `plan.md` (one task = one context window) |
+| core | **executor** | one task per fresh-context iteration; per-task backend override |
+| core | **judge** | read-only, different backend; sole source of `passes: true` |
+| opt-in | **vetter** | one-shot PRD review before planning (blocking findings pause for the human) |
+| opt-in | **tester** | writes RED tests before the executor; hash-protected |
+| opt-in | **qa** | runs e2e/verify-hints before the judge, records evidence |
+| opt-in | **oracle** | one second-opinion per blocked task before bothering the human |
+| opt-in | **hunter** | post-acceptance placeholder/mock sweep |
+| opt-in | **cleaner** | deslop pass; discarded if regression gates fail |
+| opt-in | **harvester** | distills run learnings into AGENT.md — knowledge compounds across runs |
+| opt-in | **holdout** | generates never-seen acceptance tests, fresh each round |
+| opt-in | **summarizer** | run digest for the human handoff (cheap model) |
+| opt-in | **dispatcher** | re-tags per-task `[agent:]` routing after replans |
+
+Full pipeline when everything is on: `vet → [tester→executor]×N → qa → holdout/checks → judge → hunt → deslop → harvest → summarize → human`.
+
+Every role's overreach has a **structural** check, not a prompt-level plea: tester files are hash-compared, dispatcher edits are tag-stripped-diff-verified, qa/harvester repo changes are rolled back, the judge physically cannot write.
+
+## Quick start
 
 ```bash
-# recommended: one command, installs into every host detected on your machine
-npx vloop-skill install
-
-# what it does:
-#   canonical copy -> ~/.agents/skills/vloop   (codex/cursor/gemini/copilot/opencode/
-#                                               goose/crush/amp read this natively)
-#   + symlinks     -> ~/.claude/skills, ~/.zcode/skills, ~/.kiro/skills,
-#                     ~/.factory/skills, ~/.gemini/antigravity/skills, ~/.qwen/skills, …
-#                     (only for hosts actually detected)
-
-npx vloop-skill doctor       # verify deps (jq/python3/git), hosts, loop backends
-npx vloop-skill uninstall    # clean removal (tracked by its own manifest)
+npx vloop-skill install      # canonical copy -> ~/.agents/skills/vloop (codex/cursor/gemini/
+                             # copilot/opencode/goose/crush/amp read natively) + symlinks into
+                             # detected hosts (~/.claude, ~/.zcode, ~/.kiro, ~/.factory, …)
+npx vloop-skill doctor       # check deps (bash/git/jq/python3), hosts, backends
 ```
 
-Alternatives:
-```bash
-npx skills add wikieden/vloop        # the ecosystem installer (vercel-labs/skills, 70+ agents)
-npx github:wikieden/vloop install    # run the installer straight from GitHub, no npm publish needed
+Then, inside your agent:
+
+```
+/vloop setup                 # bounded Q&A configurator (≤5 multiple-choice questions × 2 rounds)
+/vloop run                   # Mode A: your session orchestrates — observable, first-run friendly
+/vloop run --unattended      # Mode B: external bash loop — overnight; exit 42 = awaiting human
+/vloop resume                # after human review: PRD diff → replan → re-enter
+/vloop status | cancel
 ```
 
-Project-scoped instead of global: add `--project` (writes to `.agents/skills/` and `.claude/skills/` in the current repo instead of your home dir).
+Alternatives: `npx skills add wikieden/vloop` (ecosystem installer, 70+ agents) · `npx github:wikieden/vloop install` (straight from GitHub) · `--project` for repo-local install.
 
-Runtime deps for the loop orchestrator itself: `bash`, `git`, `jq`, `python3`, plus whichever backend CLIs you configure in `loop.json`.
+No agent host at all? Mode B is pure CLI: `npx vloop-skill init` (scaffold `.vloop/` config), edit, `npx vloop-skill run`.
 
-### Use without any agent host (pure CLI)
+Runtime deps: `bash`, `git`, `jq`, `python3`, plus the backend CLIs you configure — each must be interactively logged in once before the loop runs.
 
-Mode B needs no host at all — just the npm package and your chosen backend CLIs:
-```bash
-npx vloop-skill init   # scaffold .vloop/loop.json + prd.json templates in the current repo
-# edit them (or copy from skills/vloop/templates/), then:
-npx vloop-skill run    # unattended 3-layer loop; exit code 42 = awaiting human review
-```
+## Two run shapes
 
-## Mixed-agent loops (different tasks, different backends)
+**Single-agent tiered (default).** The whole loop runs on the host you're already in; roles split by tier — strong model/effort plans and judges (read-only), standard tier executes. `fable-5` plans / `sonnet-5` executes on claude; `xhigh` / `medium` effort on codex. One CLI, zero cross-vendor setup.
 
-You don't need to leave the loop's host to mix agents — vloop's own orchestrator does the routing. The **orchestrator, not the executor, picks the next task** (first unchecked line in `plan.md`, top to bottom), so it always knows which backend to launch *before* invoking anything:
+**Mixed-agent routing (opt-in).** The orchestrator — not the executor — picks each task (first unchecked line in `plan.md`), so it knows which backend to launch before invoking anything. Tag any task:
 
 ```markdown
 - [ ] T1: add DB migration (covers: S1C1) — verify: npm test -- migrate
-- [ ] T2: rename `userId` -> `accountId` across the repo (covers: S1C2) [agent: aider] — verify: npm test
-- [ ] T3: refactor the 40k-line legacy module (covers: S1C3) [agent: gemini-bulk] — verify: npm test -- legacy
+- [ ] T2: rename userId -> accountId repo-wide (covers: S1C2) [agent: aider] — verify: npm test
+- [ ] T3: refactor the 40k-line legacy module (covers: S1C3) [agent: gemini-bulk] — verify: npm test
 ```
 
-`[agent: <backend>]` is optional per task: a bare id (`codex`, `aider`, `gemini`, …) reuses the default executor's model/settings; a name from `loop.json` `backends.pool.<name>` gets its own model/danger/readonly. The planner tags tasks itself when a backend genuinely fits better (mechanical rename → aider, huge-context refactor → a big-context model) — you rarely need to hand-edit `plan.md`. An unrecognized tag warns and falls back to the default executor rather than failing the run. Commits are labeled (`vloop(T2): iter 4 green via aider`) so `git log` shows exactly who did what.
+Bare ids reuse the default executor's settings; `backends.pool.<name>` presets carry their own model/effort/danger. The planner tags tasks itself when a backend genuinely fits better; unknown tags warn and fall back instead of failing. Commits are labeled (`vloop(T2): iter 4 green via aider`).
 
-This means **the host you drive vloop from doesn't need its own multi-agent feature** — one `/vloop run` already dispatches T1 to claude, T2 to aider, T3 to gemini. Where a host's own multi-agent UI *is* useful is for interactive, non-looped work (comparing two models on the same task, or babysitting several unrelated threads by hand):
-
-- **Zed** — native [Parallel Agents](https://zed.dev/docs/ai/parallel-agents): open one thread per task in the Threads Sidebar, bind each to a different agent via ACP (Zed's own agent, Claude Code, Codex, Gemini CLI — configured under `agent_servers` in `settings.json`). Zed also reads `~/.agents/skills` natively, so `/vloop` just works in any thread; its integrated terminal (`` Ctrl+` ``) runs `npx vloop-skill run` for the unattended path.
-- **Cursor** — [Background/Parallel Agents](https://cursor.com) (Cursor 3+) run multiple isolated-worktree agents concurrently, each with a selectable *model* (Composer 2 / Opus / GPT-5.4) — note this is Cursor's own agent with a pluggable model, not a different agent CLI per thread. For genuinely different CLIs per task, either run `/vloop run` from a Cursor terminal tab (same routing as above), or drive `cursor-agent -w <name> --model <model>` per task yourself alongside other CLIs in separate terminal tabs.
-- **Claude Code** — `/vloop setup` then `/vloop run` (Mode A): the session itself is the orchestrator, shelling out to whichever backend each task is tagged with.
-- **Codex CLI** — `$vloop setup` / `$vloop run`: same protocol, Codex's shell tool runs `vloop.sh` which dispatches per task.
+**Risk-classed auto-approval (opt-in, `l3_gates.auto_approve`).** A deterministic script classifier (auditable — no LLM) passes LOW-risk milestones (small diff, no sensitive paths, clean run) without blocking on human review. Anything else queues for the human with explicit reasons. Merge and deploy remain human, always.
 
 ## Usage by agent
 
-Once installed, every host loads the same `SKILL.md`; only the *invocation syntax* differs. Core commands regardless of host: `setup` (bounded Q&A configurator) · `run` (Mode A, observable) · `run --unattended` (Mode B, background) · `resume` (after human review) · `status` · `cancel`.
+Every host loads the same `SKILL.md`; only invocation syntax differs.
 
-| Host | Invoke | Notes |
-|---|---|---|
-| **Claude Code** | `/vloop setup`, `/vloop run`, … | Native slash-command skill invocation. |
-| **Codex CLI** | `$vloop setup` (or let it auto-trigger on mention) | Reads `~/.agents/skills` natively; skill picker via `/skills`. |
-| **OpenCode** | mention "vloop" / "loop engineering" in a message | Skills are tool-invoked (`skill({name:"vloop"})`), not slash commands — the agent calls it when relevant; you can also say "use the vloop skill". |
-| **Cursor (CLI/IDE)** | `/vloop setup` | Native slash-command; also auto-triggers on description match. |
-| **Gemini CLI** | mention "vloop" or run `/skills list` then reference it | Activated via the `activate_skill` tool with per-activation consent, not a slash command. |
-| **GitHub Copilot CLI** | `/vloop setup` | Slash-command style, same as Claude Code. |
-| **Factory droid** | `/vloop setup` | Skills merged with custom commands — same `/name` UX. |
-| **goose** | mention "vloop" in your instruction, or `goose run -t "use vloop to ..."` | No slash command; the built-in `skills` extension surfaces it by description. Check with `goose skills list`. |
-| **Kiro / kiro-cli** | `/vloop setup` or `$vloop` | Auto-activates by description too; `/context show` lists loaded skills. |
-| **ZCode** (Z.ai desktop ADE) | type `$vloop setup` in chat, or open the `/` Commands+Skills panel | One-time: Settings → Skills → Refresh after install. |
-| **Antigravity** | mention "vloop" or pick it from the Agent Manager | Consent-gated auto-activation, like Gemini CLI. |
-| **amp, crush, qwen, aider, opencode-derivatives, …** | mention "vloop" / "loop engineering" | Any host that reads `~/.agents/skills` picks it up by description match; there is no separate per-host doc to maintain. |
-| **No host — pure CLI** | `npx vloop-skill init && npx vloop-skill run` | See above. |
+| Host | Invoke |
+|---|---|
+| Claude Code, Cursor, Copilot CLI, Factory droid, Kiro | `/vloop setup` (native slash command) |
+| Codex CLI, ZCode | `$vloop setup` (ZCode: Settings → Skills → Refresh once after install) |
+| OpenCode, Gemini CLI, Antigravity | mention "vloop" — skill-tool activation, consent-gated where applicable |
+| goose, amp, crush, qwen, other `~/.agents/skills` readers | mention "vloop" / "loop engineering" in the instruction |
+| Zed | `/vloop` in any agent thread (native `~/.agents/skills` support); pairs well with Parallel Agents for interactive work |
+| No host — pure CLI | `npx vloop-skill init && npx vloop-skill run` |
 
-If a host doesn't show the skill after install, run `npx vloop-skill doctor` — it reports which hosts were detected and whether their link exists.
+Skill missing somewhere? `npx vloop-skill doctor` reports detected hosts and link state.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| [docs/DESIGN.md](docs/DESIGN.md) | Full architecture: layers, protocols, configurator, adapter layer, safety (Chinese) |
-| [docs/RESEARCH.md](docs/RESEARCH.md) | Research digest: Ralph canon, GitHub implementations, HN field reports, CLI adapter matrix |
+| [docs/DESIGN.md](docs/DESIGN.md) | Full architecture: layers, protocols, configurator, adapters, safety (Chinese) |
+| [docs/RESEARCH.md](docs/RESEARCH.md) | Research digest: Ralph canon, open-source loop implementations, HN field reports, CLI adapter matrix, 2026-07 ecosystem update |
 | [skills/vloop/SKILL.md](skills/vloop/SKILL.md) | Skill entry point (setup / run / resume / status / cancel routing) |
-| skills/vloop/references/ | configurator (bounded Q&A wizard) · loop-protocol (L1/L2/L3 playbook) · adapters (multi-backend matrix) · pitfalls (guardrail checklist) |
-| skills/vloop/templates/ | loop.json · prd.json · plan.md · AGENT.md · pricing.json · role prompt templates |
+| skills/vloop/references/ | configurator wizard · L1/L2/L3 protocol playbook · 12-backend adapter matrix · pitfalls checklist |
+| skills/vloop/templates/ | loop.json · prd.json · plan.md · AGENT.md · pricing.json · 13 role prompt templates |
 | skills/vloop/scripts/ | vloop.sh (unattended orchestrator) · adapter.sh (backend invocation + normalization + cost ledger) |
 | bin/vloop-skill.js | npx installer: install / uninstall / doctor / init / run |
 
-## Command reference
-
-```
-/vloop setup            # bounded Q&A configurator (≤5 multiple-choice questions × 2 rounds)
-                        #   → .vloop/loop.json + .vloop/prd.json (falsifiable acceptance criteria)
-/vloop run              # Mode A: current session orchestrates (observable; recommended first run)
-/vloop run --unattended # Mode B: vloop.sh external loop (overnight; exit code 42 = awaiting human)
-/vloop resume           # after human review: PRD diff → regenerate plan → re-enter L2/L1
-/vloop status | cancel
-```
-
-Replace `/vloop` with your host's invocation style from the table above — the underlying protocol is identical everywhere.
-
-The configurator interviews you with lettered options (answer compactly: "1A 2C"), detects installed backends and gates, and refuses to start without every cap set — an unbounded loop is a config error, not a preference.
-
-**Default run shape: single-agent tiered.** The wizard defaults to running the whole loop on the host you're already in, splitting roles by tier — strong model/effort plans and judges (read-only), standard tier executes (e.g. fable-5/sonnet-5 on claude; xhigh/medium effort on codex). One CLI, zero cross-vendor setup. Mixing different agent CLIs per role/task is the opt-in alternative for when you want stronger judge isolation or per-task routing.
-
 ## Verified
 
-- End-to-end mock test (shim backends): L1 commit ratchet + task ticking → L2 read-only judge verdict extraction + `passes` ratchet → L3 pause artifact (`AWAITING_HUMAN.md` with cost ledger, commits, lettered questions) + exit 42 ✓
-- Failure paths: gate-failure rollback, invalid verdict counted as failed iteration, breaker trip 1 → replan, trip 2 → L3 escalation ✓
-- Cross-backend cost ledger (claude native USD + token-priced backends) ✓
-- Installer lifecycle (fake-HOME install/link/doctor/uninstall), `npm pack` contents, `npx github:wikieden/vloop` direct-from-GitHub install ✓
-- bash 3.2 compatible (macOS default shell) ✓
+Every mechanism ships with a shim-backend test: the three-layer happy path (commit ratchet → judge → milestone, exit 42), failure paths (gate rollback, invalid/mismatched verdicts, breaker → replan → escalation), mixed-agent dispatch, tester-modification rejection, baseline-delta waiver + new-failure block + infra-error hard fail, review-stalemate escalation, liveness kill (rc 125), judge-pass-but-checks-fail ratchet withholding, holdout reject→fix→pass, LOW auto-approve with audit line, sensitive-path HIGH classification, installer lifecycle, cross-backend cost ledger. bash 3.2 (stock macOS) compatible.
+
+## Provenance
+
+Design distilled from the Ralph technique (ghuntley), source-level analysis of the open-source loop ecosystem (ralphex, ralph-orchestrator, spec-kit, pickle-rick, Gas Town, …), HN practitioner consensus, and locally verified headless-CLI mechanics — with ongoing adoption of what the ecosystem proves out. Digest with sources: [docs/RESEARCH.md](docs/RESEARCH.md).
 
 ## License
 
