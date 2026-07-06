@@ -78,3 +78,33 @@
 - GitHub: snarktank/ralph · frankbria/ralph-claude-code（ADR-0002）· mikeyobrien/ralph-orchestrator · ComposioHQ/agent-orchestrator · github/spec-kit · anthropics/claude-code (ralph-wiggum plugin) · waynenilsen/ralph-kata-2
 - HN threads: 45426680（designing agentic loops）· 48345090（backpressure）· 47390228（GOAL.md）· 46750937（what ralph loops are missing）· 46632445（15h unsupervised）
 - 本地：`~/.claude/plugins/cache/claude-plugins-official/ralph-loop/` · `~/.claude/plugins/cache/omc/oh-my-claudecode/4.14.7/scripts/persistent-mode.mjs` · superpowers 6.1.1 SDD skills
+
+---
+
+# 增量调研:2026-07-06 生态与方法演进
+
+## 生态动态
+- **总称收敛为 "loop engineering"**(Addy Osmani 2026-06 推广);规模化的命名后继者是 Yegge 的 **Gas Town**("wiggum stack" 无实据)。snarktank/ralph(2月起)与官方 ralph-wiggum 插件(1月起)已停更。
+- **umputun/ralphex**(1.3k★,Go)成头部新玩家:4 阶段流水线(任务→5 并行评审→跨模型外审→终审)。
+- **Claude Code 官方 `/goal`**(v2.1.139+):完成条件由独立小模型每轮判定 —— evaluator 分离原生化。
+- **spec-kit** 转型 workflow DSL:`gate` 步骤带 `on_reject` 处理器、run_id 可恢复、fan-in 拓扑预校验。
+- **Oak**(oak.space):为 agent 造的 VCS,per-task lazy mount,快照比 git 快 ~95%,`oak export` 回放为标准 git。
+
+## 值得吸收的机制(按价值排序)
+1. **baseline-delta 门**(pickle-rick-claude):门跟踪 `(file, rule, occurrence)` 基线 —— 新失败拦截、存量失败放行。解决"脏仓库上没法开全绿门"。
+2. **评审僵局熔断**(ralphex `--review-patience`):judge findings 连续 N 轮不变 → 判死锁终止 —— 现有熔断只监测 executor,不监测 judge/executor 对峙。
+3. **held-out 随机验收测试**(arXiv 2606.07379):留一片 executor 从未见过的验收测试,只在 L2 门时揭示 + 每轮重生成 —— 反作弊从"不能改测试"升级到"看不见测试"。
+4. **风险分级 L3 自动批准**(Ona 实证):低风险(小 diff/无敏感路径/测试绿)自动过,只有高风险进人类队列 —— 首批时间 2h49m→<5min。评审队列已是 2026 的瓶颈。
+5. **claude backend 走 `/goal`**:官方 evaluator 分离 + token 记账白拿;其他 11 backend 保持外循环。
+6. **harvester 收割角色**(choo-choo-ralph):里程碑后提炼学习写回 skills/AGENT.md,跨 run 复利 —— 天然的第 9 个可选角色。
+7. **可执行 verifier 并联 LLM judge**(vercel-labs/ralph-loop-agent):`verifyCompletion` 脚本回调 + 可组合停机条件数组(iteration/token/cost 先到先停)。
+8. **beads 结构化台账**(Gas Town):git 追踪的 JSONL 任务账本(ID/状态/assignee 每行)替代扁平 progress.md;"sessions are cattle, agents are not" 的持久身份;Wasteland 的 validator stamp 硬规则"不能给自己的活盖章"。
+9. **活性超时**(ralphex idle-timeout):N 分钟无输出杀会话 —— 迭代级熔断之外的液性层;另:$6k 过夜跑飞案例 → 硬 wall-clock 预算必须有。
+10. **对抗性门加固**(arXiv 2606.08960):红队 agent 专职尝试"不解决问题地通过门",任何成功都是门的 bug。
+11. **agent 自触发重开**(Neuralyzer)+ L2 门前压缩(~86% 输入 token 降幅)。
+12. **窗口预热调度**:早上 6 点发个小请求让 5h 窗口重置落在上午中段(平移不增加配额)。
+
+## 并行 lane 结论
+生态仍未解决真正的 integrator:ralphex worktree 模式假设计划互不相交;Composio 的最佳先例是**冲突路由回 owning lane 带上下文重跑**;multi-agent-ralph-loop 靠文件所有权分区回避合并。mutation/property-based 验收门无人做 —— 对 vloop 是差异化机会而非补课。
+
+来源:github.com/umputun/ralphex · github/spec-kit workflows.md · gregorydickson/pickle-rick-claude · vercel-labs/ralph-loop-agent · mj-meyer/choo-choo-ralph · steve-yegge.medium.com (Gas Town / Wasteland) · code.claude.com/docs/en/goal · ona.com/stories/auto-approving-low-risk-prs · oak.space · arXiv 2606.07379 / 2606.26300 / 2606.08960 · github.com/gintasz/neuralyzer
