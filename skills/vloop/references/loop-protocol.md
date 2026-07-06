@@ -14,9 +14,10 @@ Mode A: the Claude Code session follows this protocol as orchestrator, invoking 
 | **cleaner** | `deslop` — after hunt (or acceptance), once per milestone | write | Behavior-neutral slop cleanup, then full gate re-run: green → `vloop(deslop)` commit; regression → entire pass discarded via clean_tree. Never blocks the milestone. |
 | **summarizer** | inside every `escalate()` | read-only | Produces the "Run summary" section of AWAITING_HUMAN.md from commits+progress (comprehension-rot guard). Failure degrades silently to the mechanical summary. Cheap model recommended. |
 | **dispatcher** | end of `replan`, after the planner | write (plan.md only) | Re-tags `[agent:]` routing. Structurally constrained: orchestrator diffs the plan with tags stripped — any change beyond tags restores the planner's version. |
+| **harvester** | `harvest` — after deslop, once per milestone | write (.vloop knowledge files only) | Distills the run's learnings into `.vloop/AGENT.md` (build/run knowledge) and `.vloop/learnings.md` (append-only, dated) — knowledge compounds across runs, transcripts don't. Repo changes discarded. |
 | **merger** | RESERVED | — | Integrates parallel L1 lanes (Gas Town pattern). The single-lane orchestrator ignores it; defined so configs are forward-compatible if/when parallel lanes land. |
 
-Full pipeline order when everything is on: `vet → [tester → executor]×N → qa → judge → hunt → deslop → summarizer → human`. Every role is independent — enable any subset.
+Full pipeline order when everything is on: `vet → [tester → executor]×N → qa → judge → hunt → deslop → harvest → summarizer → human`. Every role is independent — enable any subset.
 
 ## Orchestrator context discipline (Mode A)
 
@@ -42,10 +43,15 @@ Per iteration (fresh context, executor backend — possibly overridden per task)
    - All pass AND `git diff` non-empty → commit `vloop(T<id>): <title> [iter N]<via backend if tagged>`; tick the task checkbox in plan.md; append one line to progress.md (`iter N: T<id> done, gates green, cost $X`).
    - Any gate fails → NO commit; GATE_FEEDBACK = failing gate tail; next iteration.
    - **Immediately after ticking**, if no `- [ ]` lines remain in plan.md → phase=accept right away (don't wait for a `done` verdict that may never come if the executor keeps reporting `continue`).
-7. **Circuit breaker** (update counters in state.json):
+7. **Circuit breakers** (update counters in state.json):
    - HEAD + `git status --porcelain | shasum` unchanged 3 consecutive iterations → 1st trip: phase=replan (with "stuck" evidence); 2nd trip: phase=awaiting_human.
    - Same normalized error signature (first failing test name + error class) 5 consecutive → same escalation path.
+   - **Liveness** (adapter-level): a backend producing NO output for `caps.idle_timeout_s` (default 600) is killed (exit 125) — hung browser waits/tty prompts/network stalls that iteration counters can't see. Wall-clock per invocation stays `iteration_timeout_s` (exit 124).
+   - **Run wall-clock budget**: `caps.max_wall_hours` (default 12) since started_epoch → escalate. The $6k-overnight-runaway guard; independent of iteration caps.
+   - **Review stalemate** (L2-level, see accept phase): judge findings identical for `caps.review_patience` (default 2) consecutive redesign rounds → escalate as judge/executor deadlock. Executor-side breakers can't detect this.
    - Rate-limit/5h-window detected in backend output → sleep until reset; does NOT consume an iteration.
+
+**Baseline-delta gates** (dirty-repo support): a gate with `"baseline": true` captures pre-existing failure signatures ONCE at loop start (`.vloop/baseline/gate-<name>.sig`, lines matching `fail_pattern`, normalized+sorted). On failure, only NEW signatures vs baseline block; pre-existing ones are waived with a log line. A red gate with ZERO matchable failure lines is an infrastructure error (command missing/crashed) and always blocks — an empty signature must never read as "no new failures".
 8. **Transition**: plan fully ticked (previous step) or verdict `done` → phase=accept. Verdict `blocked` → phase=awaiting_human. Else next iteration.
 
 Verdict is a claim, not proof: `done` with unticked boxes or empty diff = failed iteration.

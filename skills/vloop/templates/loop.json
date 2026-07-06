@@ -16,11 +16,18 @@
   "gates": [
     { "name": "test", "cmd": "CHANGE_ME e.g. npm test" }
   ],
+  "_gate_options_reference": {
+    "_comment": "per-gate optional fields: baseline:true = delta mode for dirty repos — pre-existing failure signatures (captured once at loop start into .vloop/baseline/) pass, only NEW failures block; fail_pattern = regex selecting failure lines for the signature (default '(FAIL|✗|✖|Error|error)')",
+    "_example": { "name": "lint", "cmd": "npm run lint", "baseline": true, "fail_pattern": "(error|warning)" }
+  },
   "caps": {
     "max_iterations": 30,
     "max_redesign_rounds": 3,
     "budget_usd": 20,
-    "iteration_timeout_s": 1800
+    "iteration_timeout_s": 1800,
+    "idle_timeout_s": 600,
+    "max_wall_hours": 12,
+    "review_patience": 2
   },
   "l3_gates": {
     "action_classes": true,
@@ -40,6 +47,7 @@
     "cleaner":    { "backend": "claude", "_when": "post-acceptance deslop; discarded if regression gates fail, never blocks milestone" },
     "summarizer": { "backend": "claude", "model": "claude-haiku-4-5-20251001", "readonly": true, "_when": "writes the run summary into AWAITING_HUMAN.md (cheap model)" },
     "dispatcher": { "backend": "claude", "_when": "re-tags [agent:] routing after each replan; may only touch tags (diff-checked)" },
+    "harvester":  { "backend": "claude", "_when": "post-acceptance learning extraction into .vloop/AGENT.md + learnings.md; repo changes discarded; knowledge compounds across runs" },
     "merger":     { "backend": "claude", "_when": "RESERVED: integrates parallel lanes; ignored by the single-lane orchestrator" }
   }
 }

@@ -77,8 +77,13 @@
 | `git rev-parse HEAD` + 工作区 diff 哈希连续不变 | 3 轮 | 第 1 次熔断 → 强制进 L2 replan；第 2 次 → 升级 L3 |
 | 归一化错误签名（首个失败测试名+错误类）重复 | 5 轮 | 同上 |
 | provider 限流/5h 窗口（限流事件/429/文本兜底三层检测） | 即时 | sleep 到重置点，**不消耗迭代数** |
-| 单轮超时 | `iteration_timeout`（默认 1800s） | 计一次失败迭代 |
+| 单轮超时 | `iteration_timeout_s`（默认 1800s，退出码 124） | 计一次失败迭代 |
+| **活性击杀**：backend 无任何输出 | `idle_timeout_s`（默认 600s，退出码 125） | 杀会话计失败迭代（挂死的浏览器等待/tty 提问,迭代级熔断看不见） |
+| **评审僵局**：judge 判决连续原地踏步 | `review_patience`（默认 2 轮） | 判 judge/executor 死锁 → 升级 L3（executor 侧熔断测不到这种对峙） |
+| **硬墙钟预算**：整个 run 的时长 | `max_wall_hours`（默认 12h） | 升级 L3（$6k 过夜跑飞防线,独立于迭代上限） |
 | 预算 | `budget_usd` 全局台账 | 升级 L3 |
+
+**baseline-delta 门**（脏仓库支持）：门配 `"baseline": true` 时启动即捕获一次存量失败签名（`fail_pattern` 匹配行,归一排序存 `.vloop/baseline/`）；此后门红只拦**新增**签名,存量放行并记日志。门红但零匹配行 = 门本身坏了（命令缺失/崩溃）,一律硬失败,空签名永远不算"无新失败"。
 
 ## 3. L2 — 产品验收重设计闭环
 
@@ -212,9 +217,10 @@
 | cleaner | hunt 后每里程碑一次 | 写 | deslop;回归门失败整体丢弃,永不阻塞里程碑 |
 | summarizer | 每次 escalate | 只读 | AWAITING_HUMAN.md 的运行摘要(防 comprehension rot;便宜模型) |
 | dispatcher | 每次 replan 后 | 只写 plan.md | 重打 `[agent:]` 标签;去标签 diff 校验,越权即恢复原计划 |
+| harvester | deslop 后每里程碑一次 | 只写 .vloop 知识文件 | 学习收割进 AGENT.md + learnings.md(知识跨 run 复利);碰仓库代码即丢弃 |
 | merger | 预留 | — | 并行 L1 的合并者(Gas Town 模式);单线编排器忽略 |
 
-全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → summarize → human`。
+全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`。
 设计约束:每个角色的越权行为都有**结构性**检查(hash / 去标签 diff / clean_tree 回滚),不靠提示词自觉。
 
 ## 10. Skill 交付形态

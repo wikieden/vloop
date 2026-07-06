@@ -47,6 +47,21 @@ init() {
     log "state initialized (base $base, entry phase $p0)"
   fi
   [ "$(sget '.worktree')" = "$(pwd)" ] || die "state belongs to worktree $(sget '.worktree') — two loops in one workspace conflict"
+  # baseline-delta gates: capture pre-existing failure signatures ONCE at start
+  n_gates=$(cfg '.gates | length'); g=0
+  while [ "$g" -lt "$n_gates" ]; do
+    if [ "$(cfg ".gates[$g].baseline // false")" = "true" ]; then
+      gname=$(cfg ".gates[$g].name")
+      if [ ! -f "$VLOOP_DIR/baseline/gate-$gname.sig" ]; then
+        mkdir -p "$VLOOP_DIR/baseline"
+        gpat=$(cfg ".gates[$g].fail_pattern // \"(FAIL|✗|✖|Error|error)\"")
+        sh -c "$(cfg ".gates[$g].cmd")" > "$VLOOP_DIR/baseline/gate-$gname.raw" 2>&1 || true
+        gate_sig "$VLOOP_DIR/baseline/gate-$gname.raw" "$gpat" > "$VLOOP_DIR/baseline/gate-$gname.sig"
+        log "baseline captured for gate '$gname': $(wc -l < "$VLOOP_DIR/baseline/gate-$gname.sig" | tr -d ' ') pre-existing failure signature(s)"
+      fi
+    fi
+    g=$((g+1))
+  done
   # lock (mkdir is atomic); stale if owner pid dead
   if mkdir "$VLOOP_DIR/lock.d" 2>/dev/null; then echo $$ > "$VLOOP_DIR/lock.d/pid"
   else
@@ -160,13 +175,43 @@ if m:
 PY
 }
 
-# Shared backpressure gate runner; writes logs + gate-feedback on failure
+# Normalized failure signatures from a gate log: matched lines, durations and
+# runs of whitespace stripped, sorted unique (comm needs sorted input)
+gate_sig() { # gate_sig <log> <pattern>
+  grep -E "$2" "$1" 2>/dev/null \
+    | sed -E 's/[0-9]+(\.[0-9]+)?m?s\b//g; s/[[:space:]]+/ /g; s/^ //; s/ $//' \
+    | sort -u
+}
+
+# Shared backpressure gate runner; writes logs + gate-feedback on failure.
+# Gates with "baseline": true use delta mode: failures already present in the
+# pre-run baseline pass through; only NEW failure signatures block (dirty-repo
+# support — a full-green requirement would make existing debt fatal).
 run_gates() { # run_gates <outdir> ; returns 0 green / 1 fail
   n_gates=$(cfg '.gates | length'); g=0
   while [ "$g" -lt "$n_gates" ]; do
     gname=$(cfg ".gates[$g].name"); gcmd=$(cfg ".gates[$g].cmd")
     log "gate: $gname"
     if ! sh -c "$gcmd" > "$1/gate-$gname.log" 2>&1; then
+      gbase=$(cfg ".gates[$g].baseline // false")
+      if [ "$gbase" = "true" ] && [ -f "$VLOOP_DIR/baseline/gate-$gname.sig" ]; then
+        gpat=$(cfg ".gates[$g].fail_pattern // \"(FAIL|✗|✖|Error|error)\"")
+        gate_sig "$1/gate-$gname.log" "$gpat" > "$1/gate-$gname.sig"
+        if [ ! -s "$1/gate-$gname.sig" ]; then
+          # failed with ZERO matchable failure lines = the gate itself broke
+          # (command missing, crash) — infrastructure errors are never waivable
+          { echo "GATE FAILED: $gname ($gcmd) — no matchable failure lines (gate infrastructure error?) — last 100 lines:"; tail -100 "$1/gate-$gname.log"; } > "$VLOOP_DIR/runs/gate-feedback.txt"
+          return 1
+        fi
+        new_fails=$(comm -23 "$1/gate-$gname.sig" "$VLOOP_DIR/baseline/gate-$gname.sig")
+        if [ -z "$new_fails" ]; then
+          log "gate: $gname red but zero NEW failures vs baseline ($(wc -l < "$VLOOP_DIR/baseline/gate-$gname.sig" | tr -d ' ') pre-existing) — waived"
+          g=$((g+1)); continue
+        fi
+        { echo "GATE FAILED: $gname ($gcmd) — NEW failures vs baseline:"; printf '%s\n' "$new_fails" | head -50
+          echo; echo "-- last 100 log lines:"; tail -100 "$1/gate-$gname.log"; } > "$VLOOP_DIR/runs/gate-feedback.txt"
+        return 1
+      fi
       { echo "GATE FAILED: $gname ($gcmd) — last 200 lines:"; tail -200 "$1/gate-$gname.log"; } > "$VLOOP_DIR/runs/gate-feedback.txt"
       return 1
     fi
@@ -175,11 +220,12 @@ run_gates() { # run_gates <outdir> ; returns 0 green / 1 fail
   return 0
 }
 
-# After acceptance passes: optional hunt -> optional deslop -> milestone escalation
+# After acceptance passes: optional hunt -> deslop -> harvest -> milestone escalation
 milestone_gate() {
   r=$(sget '.round')
   if role_on hunter && [ "$(sget '.hunt_done // false')" != "true" ]; then sset '.phase="hunt"'; return; fi
   if role_on cleaner && [ "$(sget '.deslop_done // false')" != "true" ]; then sset '.phase="deslop"'; return; fi
+  if role_on harvester && [ "$(sget '.harvest_done // false')" != "true" ]; then sset '.phase="harvest"'; return; fi
   escalate "milestone complete — all stories accepted; review the branch" "$VLOOP_DIR/runs/accept-$r/report.md"
 }
 
@@ -216,6 +262,10 @@ do_implement() {
     elapsed=$(( $(date +%s) - $(sget '.started_epoch') ))
     [ "$elapsed" -gt $(( tph * 3600 )) ] && { escalate "timed pause (${tph}h elapsed)"; return; }
   fi
+  # hard wall-clock budget — the $6k-overnight-runaway guard, independent of iteration caps
+  mwh=$(cfg '.caps.max_wall_hours // 12')
+  welapsed=$(( $(date +%s) - $(sget '.started_epoch') ))
+  [ "$welapsed" -gt $(( mwh * 3600 )) ] && { escalate "hard wall-clock budget (${mwh}h) exhausted"; return; }
 
   outdir="$VLOOP_DIR/runs/iter-$it"; mkdir -p "$outdir"
   [ -n "$(git status --porcelain)" ] && { log "dirty tree from failed iteration — rolling back"; clean_tree; }
@@ -419,7 +469,20 @@ PY
 
   if ! jq -e '.stories[] | select(.passes==false)' "$VLOOP_DIR/prd.json" >/dev/null 2>&1; then
     { echo "## Acceptance report (round $r) — ALL STORIES PASS"; jq -r '.summary' "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+    sset '.judge_stale = 0 | .last_judge_sig = ""'
     milestone_gate
+    return
+  fi
+
+  # review stalemate breaker: identical failing findings N rounds running means
+  # judge/executor deadlock — the executor-side breakers can't see this
+  judge_sig=$(jq -S '[.stories[] | select(.overall != "pass") | {s: .story_id, c: [.criteria[]? | select(.pass | not) | .id]}]' "$VLOOP_DIR/acceptance.json" 2>/dev/null | shasum | cut -d' ' -f1)
+  if [ "$judge_sig" = "$(sget '.last_judge_sig // ""')" ]; then sset '.judge_stale += 1'
+  else sset ".judge_stale = 0 | .last_judge_sig = \"$judge_sig\""; fi
+  patience=$(cfg '.caps.review_patience // 2')
+  if [ "$(sget '.judge_stale')" -ge "$patience" ]; then
+    { echo "## Review stalemate — judge findings unchanged for $patience consecutive redesign rounds"; cat "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+    escalate "review stalemate: identical judge findings across $((patience+1)) rounds (judge/executor deadlock)" "$outdir/report.md"
     return
   fi
 
@@ -559,6 +622,24 @@ do_deslop() {
   milestone_gate
 }
 
+# ------------------------------------------------------------- L2 harvest (post-acceptance learning extraction)
+do_harvest() {
+  r=$(sget '.round'); outdir="$VLOOP_DIR/runs/harvest-$r"; mkdir -p "$outdir"
+  tail -80 "$VLOOP_DIR/progress.md" > "$outdir/progress.tail" 2>/dev/null || echo "(none)" > "$outdir/progress.tail"
+  git log --oneline "$(sget '.base_commit')..HEAD" > "$outdir/commits.txt" 2>/dev/null
+  render "$TPL_DIR/PROMPT-harvest.md" "$outdir/prompt.md" \
+    "PROGRESS=@$outdir/progress.tail" "COMMITS=@$outdir/commits.txt" "AGENT_MD=@$VLOOP_DIR/AGENT.md"
+  log "harvest: invoking harvester (learning extraction)"
+  rm -f "$VLOOP_DIR/verdict.json"
+  "$ADAPTER" invoke harvester "$outdir/prompt.md" "$outdir"
+  ledger_add "$outdir"
+  # harvester may only touch .vloop knowledge files (AGENT.md / learnings.md) —
+  # any repo change is discarded, learning extraction never alters the product
+  [ -n "$(git status --porcelain)" ] && { log "harvest left repo changes — discarding (knowledge files only)"; clean_tree; }
+  sset '.harvest_done = true'
+  milestone_gate
+}
+
 # ------------------------------------------------------------- main
 init
 log "start: phase=$(sget '.phase') project=$(cfg '.project') executor=$(cfg '.backends.executor.backend') judge=$(cfg '.backends.judge.backend')"
@@ -571,6 +652,7 @@ while :; do
     accept)    do_accept ;;
     hunt)      do_hunt ;;
     deslop)    do_deslop ;;
+    harvest)   do_harvest ;;
     replan)    do_replan ;;
     awaiting_human)
       log "AWAITING HUMAN — see $VLOOP_DIR/AWAITING_HUMAN.md"

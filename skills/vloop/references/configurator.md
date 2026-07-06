@@ -74,7 +74,7 @@ Pool entries may point at a *different backend entirely* — here a codex-planne
 
 问一次:"要启用哪些扩展角色?(核心三角色外全部可选,默认只推荐前两项)" 选项按价值排序,多选:
 - A. **vetter + summarizer**(推荐——各一次调用,PRD 审查 + 人类交接摘要,成本最低杠杆最高)
-- B. **hunter + cleaner**(验收后占位符清剿 + deslop,OMC ralph 实战验证的组合)
+- B. **hunter + cleaner + harvester**(验收后占位符清剿 + deslop + 学习收割进 AGENT.md/learnings.md,跨 run 复利)
 - C. **tester**(TDD 分离:写测试的 ≠ 写代码的,hash 强制不可改;改变 L1 结构,首跑建议先不开)
 - D. **qa + oracle + dispatcher**(e2e 证据采集 / 卡点二意见 / 任务路由,按需)
 
@@ -83,7 +83,8 @@ Pool entries may point at a *different backend entirely* — here a codex-planne
 ## Round 2 — 护栏 (≤5 questions)
 
 6. **隔离** — A. git worktree + 分支（默认） B. 仅分支 C. Docker 沙箱。若任何 backend 需要 danger flag（--dangerously-*/--yolo/--auto），只允许 A 或 C。
-7. **上限档位** — A. 保守（15 迭代 / 2 重设计轮 / $5 / 900s 单轮） B. 标准（30 / 3 / $20 / 1800s） C. 过夜（60 / 3 / $50 / 1800s） D. 自定义
+7. **上限档位** — A. 保守（15 迭代 / 2 重设计轮 / $5 / 900s 单轮） B. 标准（30 / 3 / $20 / 1800s） C. 过夜（60 / 3 / $50 / 1800s） D. 自定义。所有档位自动附带:`idle_timeout_s: 600`(无输出活性击杀)、`max_wall_hours: 12`(硬墙钟预算)、`review_patience: 2`(评审僵局熔断)。
+7b. **脏仓库?** 若探测/试跑发现门在基线上就是红的,提议给该门加 `"baseline": true`(delta 模式:存量失败放行,只拦新增失败;签名基线在循环启动时捕获一次)。
 8. **L3 gate** — A. 全开（默认：动作类 + 里程碑 + 定时每 2h） B. 过夜模式（关定时暂停，保留动作类 + 里程碑 + 异常升级）。动作类 gate（merge/deploy/publish/delete/charge/close）不可关闭，不作为选项提供。
 9. **通知** — A. ntfy topic B. webhook URL C. macOS osascript 通知 D. 无（仅退出码 + AWAITING_HUMAN.md）
 10. **Resume 策略** — A. 每轮全新上下文（Ralph 正统，默认） B. L2 失败后先 resume 实现者会话廉价修一次，再回全新迭代

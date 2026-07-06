@@ -17,13 +17,31 @@ CONFIG="$VLOOP_DIR/loop.json"
 
 die() { echo "vloop-adapter: $*" >&2; exit 1; }
 
-# Portable timeout: GNU timeout > gtimeout > perl alarm fallback.
+# Wall-clock + liveness watchdog. Watches the caller's $so/$se output files for
+# growth: a session producing NO output for IDLE_S seconds is hung (browser
+# waits, tty prompts, network stalls) and gets killed — iteration-level breakers
+# can't see liveness. Exit codes: 124 = wall-clock, 125 = idle-killed.
 run_with_timeout() {
-  secs="$1"; shift
-  if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
-  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
-  else perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$secs" "$@"
-  fi
+  wall="$1"; shift
+  idle="${IDLE_S:-600}"
+  # <&0 is load-bearing: background jobs default stdin to /dev/null, which
+  # would silently feed EMPTY prompts to stdin-mode backends (claude/amp/qwen)
+  "$@" <&0 &
+  wpid=$!
+  ws=$(date +%s); last_sz=-1; last_ch=$ws
+  while kill -0 "$wpid" 2>/dev/null; do
+    sleep 5
+    now=$(date +%s)
+    sz=$(( $(wc -c < "$so" 2>/dev/null || echo 0) + $(wc -c < "$se" 2>/dev/null || echo 0) ))
+    [ "$sz" != "$last_sz" ] && { last_sz=$sz; last_ch=$now; }
+    if [ $((now - ws)) -ge "$wall" ]; then
+      kill "$wpid" 2>/dev/null; sleep 1; kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 124
+    fi
+    if [ $((now - last_ch)) -ge "$idle" ]; then
+      kill "$wpid" 2>/dev/null; sleep 1; kill -9 "$wpid" 2>/dev/null; wait "$wpid" 2>/dev/null; return 125
+    fi
+  done
+  wait "$wpid"
 }
 
 cfg() { jq -r "$1" "$CONFIG"; }
@@ -105,6 +123,7 @@ invoke() {
     danger=$(cfg ".backends.$role.danger // false")
   fi
   tmo=$(cfg ".caps.iteration_timeout_s // 1800")
+  IDLE_S=$(cfg ".caps.idle_timeout_s // 600")
   so="$outdir/out.stdout"; se="$outdir/out.stderr"
   start_ts=$(date +%s)
 
@@ -220,8 +239,9 @@ invoke() {
   esac
 
   dur=$(( $(date +%s) - start_ts ))
-  # 124 = GNU timeout; 142 = perl SIGALRM
-  timed_out=false; { [ "$rc" -eq 124 ] || [ "$rc" -eq 142 ]; } && timed_out=true
+  # 124 = wall-clock kill; 125 = idle/liveness kill; 142 = legacy SIGALRM
+  timed_out=false; { [ "$rc" -eq 124 ] || [ "$rc" -eq 142 ] || [ "$rc" -eq 125 ]; } && timed_out=true
+  [ "$rc" -eq 125 ] && echo "[vloop-adapter] killed by liveness watchdog: no output for ${IDLE_S}s" >> "$se"
 
   BACKEND="$backend" RC="$rc" DUR="$dur" TIMED_OUT="$timed_out" OUTDIR="$outdir" \
   python3 - <<'PY'
