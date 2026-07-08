@@ -112,6 +112,7 @@ npx vloop-skill doctor       # 体检:依赖(bash/git/jq/python3)、宿主、bac
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | 完整架构:分层、协议、配置器、适配层、安全 |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | 调研:Ralph 原典、开源实现源码分析、HN 实战、CLI 适配矩阵、2026-07 生态更新 |
+| [docs/LOOPS-REFERENCE.md](docs/LOOPS-REFERENCE.md) | LOOPS.md 九法则+二十模式 × vloop 差距审计(署名存疑已如实标注) |
 | [skills/vloop/SKILL.md](skills/vloop/SKILL.md) | Skill 入口(setup / run / resume / status / cancel 路由) |
 | skills/vloop/references/ | 配置器向导 · 三层协议手册 · 12-backend 适配矩阵 · 护栏检查单 |
 | skills/vloop/templates/ | loop.json · prd.json · plan.md · AGENT.md · pricing.json · 13 个角色提示词模板 |

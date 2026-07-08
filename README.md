@@ -115,6 +115,7 @@ Skill missing somewhere? `npx vloop-skill doctor` reports detected hosts and lin
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | Full architecture: layers, protocols, configurator, adapters, safety (Chinese) |
 | [docs/RESEARCH.md](docs/RESEARCH.md) | Research digest: Ralph canon, open-source loop implementations, HN field reports, CLI adapter matrix, 2026-07 ecosystem update |
+| [docs/LOOPS-REFERENCE.md](docs/LOOPS-REFERENCE.md) | LOOPS.md 9 rules + 20 patterns × vloop gap audit (attribution caveats noted) |
 | [skills/vloop/SKILL.md](skills/vloop/SKILL.md) | Skill entry point (setup / run / resume / status / cancel routing) |
 | skills/vloop/references/ | configurator wizard · L1/L2/L3 protocol playbook · 12-backend adapter matrix · pitfalls checklist |
 | skills/vloop/templates/ | loop.json · prd.json · plan.md · AGENT.md · pricing.json · 13 role prompt templates |
