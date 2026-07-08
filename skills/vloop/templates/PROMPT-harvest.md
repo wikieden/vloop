@@ -11,11 +11,15 @@ The milestone passed acceptance. Before the human review, you distill what this 
 ## Current AGENT.md
 {{AGENT_MD}}
 
+## Divergence points (iterations where the executor CLAIMED success but gates disagreed)
+{{DIVERGENCE}}
+
 ## Harvest targets
 1. **Build/run/test knowledge**: commands, flags, environment quirks discovered the hard way → update the relevant section of `.vloop/AGENT.md` (brief, imperative; NEVER status reports).
 2. **Failure patterns** ("scars"): what the loop repeatedly got wrong (duplicate implementations, a flaky test, a misleading module name) and the rule that prevents it → one line each.
 3. **Codebase facts** future iterations will otherwise re-discover: where X actually lives, which module owns Y, what NOT to touch.
 4. **Process observations**: which tasks were oversized, which gate was too slow, what stalled iterations.
+5. **Divergence analysis** (read the section above like a stack trace): for each iteration where the claim split from the evidence, name WHY the executor believed it was done when it wasn't (misread criterion? test not actually run? wrong definition of done?) and write ONE `[divergence]` rule that would have prevented it — that rule is exactly the prompt fix the operator should make.
 
 ## Rules
 - Write ONLY to `.vloop/AGENT.md` (update in place, keep it short — bloat degrades every future iteration) and `.vloop/learnings.md` (append-only, one dated section per milestone).

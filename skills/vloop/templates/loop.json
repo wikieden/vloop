@@ -27,7 +27,8 @@
     "iteration_timeout_s": 1800,
     "idle_timeout_s": 600,
     "max_wall_hours": 12,
-    "review_patience": 2
+    "review_patience": 2,
+    "score_thresholds": { "correctness": 0.8, "craft": 0.5, "design": 0.5, "functionality": 0.8 }
   },
   "l3_gates": {
     "action_classes": true,
@@ -60,6 +61,7 @@
     "summarizer": { "backend": "claude", "model": "claude-haiku-4-5-20251001", "readonly": true, "_when": "writes the run summary into AWAITING_HUMAN.md (cheap model)" },
     "dispatcher": { "backend": "claude", "_when": "re-tags [agent:] routing after each replan; may only touch tags (diff-checked)" },
     "harvester":  { "backend": "claude", "_when": "post-acceptance learning extraction into .vloop/AGENT.md + learnings.md; repo changes discarded; knowledge compounds across runs" },
+    "redteam":    { "backend": "codex", "readonly": true, "_when": "post-acceptance adversarial gate review: hunts ways to pass the gate WITHOUT solving the problem; exploited bypass -> replan, theoretical -> advisory for the human" },
     "holdout":    { "backend": "codex", "_when": "generates acceptance tests the executor has NEVER seen, fresh each round, quarantined in .vloop/holdout/; failures structurally reject the milestone regardless of judge opinion — use a backend different from the executor" },
     "merger":     { "backend": "claude", "_when": "RESERVED: integrates parallel lanes; ignored by the single-lane orchestrator" }
   }

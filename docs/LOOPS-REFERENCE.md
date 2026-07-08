@@ -13,8 +13,8 @@
 | 3 | 先协商合同(写码前在磁盘上辩论出可测试断言清单) | ✓ | prd.json `acceptanceCriteria`(可证伪性检查,"PRD theater" 拒收)+ vetter 角色审合同 + 首个 L3 门 = 人批计划 |
 | 4 | 状态写磁盘(feature_list/progress/contract/log 四文件,崩溃可续) | ✓ | prd.json(合同)/ plan.md(任务)/ progress.md+state.json(进度)/ runs/(日志)+ learnings.md;压缩/重启后靠台账+git log 恢复 |
 | 5 | 允许推倒重来(第 9 次删项目,第 11 次交付) | ✓ | 回滚优于修复(失败迭代整树丢弃);plan 跑偏整个重生成;L3 打回可 reset 到任意 tag |
-| 6 | 给审美打分(设计/原创性/工艺/功能性,输出 0-1) | ✗ | judge 是二值 pass/fail。**候选**:judge verdict 加多维 0-1 评分,低于阈值即 fail(模式②的门槛) |
-| 7 | 像读 stack trace 读日志(grep 分歧点,改那段 Prompt) | ◐ | runs/ 留每轮全量产物可 grep;但"判断与意图分歧点"定位是人工(Ralph 调音)。**候选**:harvester 增加分歧点分析职责 |
+| 6 | 给审美打分(设计/原创性/工艺/功能性,输出 0-1) | ✓ | judge verdict 带 `scores`(correctness/craft/design/functionality 0-1)+ `caps.score_thresholds` 门槛:全过但低分 → 重做提分(缺分仅 advisory,向后兼容) |
+| 7 | 像读 stack trace 读日志(grep 分歧点,改那段 Prompt) | ✓ | 每轮落 outcome.txt 取证;harvest 机械提取"声明成功但门不同意"的分歧点摘要,harvester 每例产出一条 [divergence] 预防规则 = 该改的那段 Prompt |
 | 8 | 随时删除 Harness(模型升级后旧控制代码是累赘) | ✓(哲学) | bash 外壳极简可弃;loop-tool 商品化风险已写进 pitfalls;/goal 等官方原语一成熟就替换自建件 |
 | 9 | 瓶颈永远在移动(代码→规划→验证) | ✓(实证) | vloop 自身演进即证明:v0.1 循环骨架 → 验证栈五层 → 评审队列成瓶颈 → 风险分级自动批准 |
 
@@ -24,9 +24,9 @@
 | 模式 | vloop | 说明 |
 |---|---|---|
 | ① 生成→批判→重写 | ✓ | L2 主环:executor 出 → judge 挑刺 → planner 重设计 → 回灌 |
-| ② 打分-重试(低于阈值重来,超上限返最优) | ◐ | 有重试上限(redesign ≤3)+ 熔断;无数值评分阈值,pass/fail 二值。"返回最优版本"未做(每轮棘轮 commit 天然保底) |
+| ② 打分-重试(低于阈值重来,超上限返最优) | ✓ | score_thresholds 低于阈值 → 重做(计入 redesign 上限);棘轮 commit 保底最优版本 |
 | ③ 多重批判者(正确性/风格/安全/行为并行) | ◐ | 串行多批判:gates(行为)+ holdout(正确性)+ hunter(工艺)+ judge(全维);未并行分 lens。**候选**:judge 拆多 lens 并行 |
-| ④ 对抗审查(专门推翻你的结论) | ◐ | holdout(看不见的测试)是弱对抗;RESEARCH 候选里有 hacker-fixer 红队门(arXiv 2606.08960)未实现 |
+| ④ 对抗审查(专门推翻你的结论) | ✓ | redteam 角色:验收后猎门绕过;被当前代码利用 → replan 且修后复查;理论性 → 人类 advisory(hacker-fixer,arXiv 2606.08960) |
 
 ### 记忆与历史
 | 模式 | vloop | 说明 |
@@ -59,9 +59,9 @@
 
 ## 差距结论(按行动价值)
 
-1. **⑥ 审美/多维打分**:judge verdict 加 `scores: {correctness, craft, design, functionality}` 0-1 + 阈值 → 一次改动同时覆盖法则 6 + 模式②③。最值得做。
-2. **法则 7 分歧点定位**:harvester 加一条职责 —— grep runs/ 找"verdict 声明 vs 门结果"分歧的迭代,写进 learnings。低成本。
-3. **④ 对抗审查**:红队门加固已在 RESEARCH 候选列表(arXiv 依据),排期即可。
+1. ~~**⑥ 审美/多维打分**~~ **已实现**(v0.7.0):judge scores + score_thresholds 门。
+2. ~~**法则 7 分歧点定位**~~ **已实现**(v0.7.0):outcome.txt 取证 + harvest 分歧摘要 + [divergence] 规则。
+3. ~~**④ 对抗审查**~~ **已实现**(v0.7.0):redteam 角色,exploited→replan+复查 / theoretical→advisory。
 4. **多路径整类**:维持不做,理由充分(生态未解 + Ralph 公理);merger/fork 口子已留。
 5. **⑰ 自我重构**:明确永不做 —— 与 L3 公理冲突,写入本文档作为设计决策。
 

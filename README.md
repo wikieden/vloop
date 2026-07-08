@@ -31,7 +31,7 @@ Runaway protection: per-iteration timeout, liveness watchdog (no-output kill), c
 
 ## Roles
 
-Three core roles, ten opt-in specialists — enable any subset in `loop.json`:
+Three core roles, eleven opt-in specialists — enable any subset in `loop.json`:
 
 | | Role | Does |
 |---|---|---|
@@ -46,10 +46,11 @@ Three core roles, ten opt-in specialists — enable any subset in `loop.json`:
 | opt-in | **cleaner** | deslop pass; discarded if regression gates fail |
 | opt-in | **harvester** | distills run learnings into AGENT.md — knowledge compounds across runs |
 | opt-in | **holdout** | generates never-seen acceptance tests, fresh each round |
+| opt-in | **redteam** | hunts gate bypasses adversarially; exploited → replan + re-verify, theoretical → human advisory |
 | opt-in | **summarizer** | run digest for the human handoff (cheap model) |
 | opt-in | **dispatcher** | re-tags per-task `[agent:]` routing after replans |
 
-Full pipeline when everything is on: `vet → [tester→executor]×N → qa → holdout/checks → judge → hunt → deslop → harvest → summarize → human`.
+Full pipeline when everything is on: `vet → [tester→executor]×N → qa → holdout/checks → judge → hunt → redteam → deslop → harvest → summarize → human`.
 
 Every role's overreach has a **structural** check, not a prompt-level plea: tester files are hash-compared, dispatcher edits are tag-stripped-diff-verified, qa/harvester repo changes are rolled back, the judge physically cannot write.
 
@@ -124,7 +125,7 @@ Skill missing somewhere? `npx vloop-skill doctor` reports detected hosts and lin
 
 ## Verified
 
-Every mechanism ships with a shim-backend test: the three-layer happy path (commit ratchet → judge → milestone, exit 42), failure paths (gate rollback, invalid/mismatched verdicts, breaker → replan → escalation), mixed-agent dispatch, tester-modification rejection, baseline-delta waiver + new-failure block + infra-error hard fail, review-stalemate escalation, liveness kill (rc 125), judge-pass-but-checks-fail ratchet withholding, holdout reject→fix→pass, LOW auto-approve with audit line, sensitive-path HIGH classification, installer lifecycle, cross-backend cost ledger. bash 3.2 (stock macOS) compatible.
+Every mechanism ships with a shim-backend test: the three-layer happy path (commit ratchet → judge → milestone, exit 42), failure paths (gate rollback, invalid/mismatched verdicts, breaker → replan → escalation), mixed-agent dispatch, tester-modification rejection, baseline-delta waiver + new-failure block + infra-error hard fail, review-stalemate escalation, liveness kill (rc 125), judge-pass-but-checks-fail ratchet withholding, holdout reject→fix→pass, LOW auto-approve with audit line, sensitive-path HIGH classification, installer lifecycle, cross-backend cost ledger, score-gate low-craft replan → improved pass, divergence digest reaching the harvester, red-team exploited-bypass replan → post-fix re-verification → theoretical-advisory. bash 3.2 (stock macOS) compatible.
 
 ## Provenance
 

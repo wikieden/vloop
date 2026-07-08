@@ -254,10 +254,11 @@ print("LOW" if not reasons else "HIGH: " + "; ".join(reasons))
 PY
 }
 
-# After acceptance passes: optional hunt -> deslop -> harvest -> risk-classed finish
+# After acceptance passes: optional hunt -> redteam -> deslop -> harvest -> risk-classed finish
 milestone_gate() {
   r=$(sget '.round')
   if role_on hunter && [ "$(sget '.hunt_done // false')" != "true" ]; then sset '.phase="hunt"'; return; fi
+  if role_on redteam && [ "$(sget '.redteam_done // false')" != "true" ]; then sset '.phase="redteam"'; return; fi
   if role_on cleaner && [ "$(sget '.deslop_done // false')" != "true" ]; then sset '.phase="deslop"'; return; fi
   if role_on harvester && [ "$(sget '.harvest_done // false')" != "true" ]; then sset '.phase="harvest"'; return; fi
   risk=$(classify_risk)
@@ -413,6 +414,12 @@ do_implement() {
     clean_tree
   fi
 
+  # per-iteration forensics (LOOPS.md rule 7 — read logs like a stack trace):
+  # snapshot claim vs evidence so harvest can locate divergence points later
+  cp "$VLOOP_DIR/verdict.json" "$outdir/verdict.json" 2>/dev/null
+  [ "$gates_green" != "true" ] && cp "$VLOOP_DIR/runs/gate-feedback.txt" "$outdir/gate-feedback.txt" 2>/dev/null
+  echo "verdict=$verdict_status task=$task_id gates_green=$gates_green agent=${task_agent:-default}" > "$outdir/outcome.txt"
+
   # circuit breaker
   h=$(progress_hash); last=$(sget '.last_hash')
   if [ "$h" = "$last" ]; then sset '.no_progress += 1'; else sset ".no_progress = 0 | .last_hash = \"$h\""; fi
@@ -563,7 +570,39 @@ print("PASSED" if not failed else "FAILED:" + ",".join(failed))
 PY
 
     if ! jq -e '.stories[] | select(.passes==false)' "$VLOOP_DIR/prd.json" >/dev/null 2>&1; then
-      { echo "## Acceptance report (round $r) — ALL STORIES PASS"; jq -r '.summary' "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+      # multi-dimension score gate (LOOPS.md rule 6 / patterns 2-3): judge emits
+      # 0-1 scores (correctness/craft/design/functionality); caps.score_thresholds
+      # turns craft into a gate instead of a vibe. Missing scores = advisory only —
+      # an old prompt or weak judge must never hard-fail a passing milestone here.
+      sc_line=$(jq -c '.scores // {}' "$VLOOP_DIR/acceptance.json" 2>/dev/null)
+      log "judge scores: ${sc_line:-"{}"}"
+      low_dims=$(THR="$(jq -c '.caps.score_thresholds // {}' "$CONFIG")" ACC="$VLOOP_DIR/acceptance.json" python3 - <<'PY'
+import json, os
+thr = json.loads(os.environ["THR"] or "{}")
+try: sc = json.load(open(os.environ["ACC"])).get("scores") or {}
+except Exception: sc = {}
+print("; ".join(f"{k}={sc[k]} < {v}" for k, v in thr.items()
+                if isinstance(sc.get(k), (int, float)) and sc[k] < v))
+PY
+)
+      if [ -n "$low_dims" ]; then
+        rr=$(sget '.redesign_rounds'); maxrr=$(cfg '.caps.max_redesign_rounds')
+        if [ "$rr" -ge "$maxrr" ]; then
+          { echo "## Score thresholds unmet after $maxrr redesign rounds: $low_dims"; cat "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
+          escalate "score thresholds unmet ($low_dims) — max_redesign_rounds exhausted" "$outdir/report.md"
+          return
+        fi
+        sset '.redesign_rounds += 1'
+        { echo "SCORE GATE FAILED — every criterion passes but quality scores are below configured thresholds: $low_dims"
+          echo "Raise the low dimensions WITHOUT breaking passing criteria (refactor, polish, harden — no feature churn)."
+          jq -r '.summary // ""' "$VLOOP_DIR/acceptance.json" 2>/dev/null; } > "$VLOOP_DIR/runs/judge-feedback.txt"
+        log "L2: score gate failed ($low_dims) -> replan"
+        sset '.phase="replan"'
+        return
+      fi
+      { echo "## Acceptance report (round $r) — ALL STORIES PASS"
+        [ -n "$sc_line" ] && [ "$sc_line" != "{}" ] && echo "scores: $sc_line"
+        jq -r '.summary' "$VLOOP_DIR/acceptance.json"; } > "$outdir/report.md"
       sset '.judge_stale = 0 | .last_judge_sig = ""'
       milestone_gate
       return
@@ -727,13 +766,71 @@ do_deslop() {
   milestone_gate
 }
 
+# ------------------------------------------------------------- L2 redteam (adversarial gate review)
+# LOOPS.md pattern 4 / arXiv 2606.08960 hacker-fixer: an adversary hunts for ways
+# to satisfy the acceptance gate WITHOUT solving the problem. A bypass the current
+# code actually exploits = acceptance failure; a theoretical bypass = gate bug,
+# reported to the human (criteria hardening is L3 territory).
+do_redteam() {
+  r=$(sget '.round'); outdir="$VLOOP_DIR/runs/redteam-$r"; mkdir -p "$outdir"
+  base=$(sget '.base_commit')
+  { git diff --stat "$base..HEAD"; echo; git diff "$base..HEAD" | head -c 80000; } > "$outdir/diff.txt" 2>/dev/null
+  checks_json=$(jq -c '.acceptance_checks // []' "$CONFIG")
+  render "$TPL_DIR/PROMPT-redteam.md" "$outdir/prompt.md" \
+    "PRD=@$VLOOP_DIR/prd.json" "DIFF=@$outdir/diff.txt" "CHECKS=$checks_json"
+  log "redteam: invoking adversarial reviewer (gate-bypass hunt, read-only)"
+  "$ADAPTER" invoke redteam "$outdir/prompt.md" "$outdir"
+  ledger_add "$outdir"
+  rm -f "$VLOOP_DIR/redteam.json"
+  extract_json "$outdir/out.json" "$VLOOP_DIR/redteam.json"
+  exploited=$(jq '[.gate_bypasses[]? | select(.exploited_by_current_code == true)] | length' "$VLOOP_DIR/redteam.json" 2>/dev/null || echo 0)
+  total=$(jq '.gate_bypasses | length' "$VLOOP_DIR/redteam.json" 2>/dev/null || echo 0)
+  if [ "${exploited:-0}" -gt 0 ] 2>/dev/null; then
+    rr=$(sget '.redesign_rounds'); maxrr=$(cfg '.caps.max_redesign_rounds')
+    if [ "$rr" -ge "$maxrr" ]; then
+      escalate "redteam found $exploited exploited gate bypass(es) but max_redesign_rounds is exhausted" "$VLOOP_DIR/redteam.json"
+      return
+    fi
+    jq '{summary: "RED TEAM: current code EXPLOITS acceptance-gate weaknesses — make the real behavior true, do not game the check", failed: [.gate_bypasses[] | select(.exploited_by_current_code == true)]}' \
+      "$VLOOP_DIR/redteam.json" > "$VLOOP_DIR/runs/judge-feedback.txt"
+    # deliberately NOT setting redteam_done: after the fix lands, the red team
+    # re-verifies the exact exploit — bounded by max_redesign_rounds
+    sset '.redesign_rounds += 1 | .phase="replan"'
+    log "redteam: $exploited exploited bypass(es) -> replan (red team will re-verify after the fix)"
+    return
+  fi
+  sset '.redteam_done = true'
+  if [ "${total:-0}" -gt 0 ] 2>/dev/null; then
+    log "redteam: $total theoretical gate weakness(es) — advisory (criteria hardening is a human decision)"
+    { echo; echo "## Red-team advisory — acceptance-gate weaknesses to harden (not exploited by current code)"
+      jq -r '.gate_bypasses[] | "- \(.route)"' "$VLOOP_DIR/redteam.json" 2>/dev/null; } >> "$VLOOP_DIR/runs/accept-$r/report.md" 2>/dev/null
+  else
+    log "redteam: clean — no bypass routes found"
+  fi
+  milestone_gate
+}
+
 # ------------------------------------------------------------- L2 harvest (post-acceptance learning extraction)
 do_harvest() {
   r=$(sget '.round'); outdir="$VLOOP_DIR/runs/harvest-$r"; mkdir -p "$outdir"
   tail -80 "$VLOOP_DIR/progress.md" > "$outdir/progress.tail" 2>/dev/null || echo "(none)" > "$outdir/progress.tail"
   git log --oneline "$(sget '.base_commit')..HEAD" > "$outdir/commits.txt" 2>/dev/null
+  # divergence digest (LOOPS.md rule 7): iterations where the executor CLAIMED
+  # success but the gates disagreed — exactly where judgment split from intent,
+  # i.e. which prompt/rule to fix
+  : > "$outdir/divergence.txt"
+  for d in "$VLOOP_DIR"/runs/iter-*/; do
+    [ -f "$d/outcome.txt" ] || continue
+    if grep -q "gates_green=false" "$d/outcome.txt" && grep -qE "verdict=(continue|done)" "$d/outcome.txt"; then
+      { echo "== $(basename "$d"): executor claimed success, evidence disagreed =="
+        cat "$d/outcome.txt"
+        head -3 "$d/gate-feedback.txt" 2>/dev/null; echo; } >> "$outdir/divergence.txt"
+    fi
+  done
+  [ -s "$outdir/divergence.txt" ] || echo "(none — no claim/evidence divergence this run)" > "$outdir/divergence.txt"
   render "$TPL_DIR/PROMPT-harvest.md" "$outdir/prompt.md" \
-    "PROGRESS=@$outdir/progress.tail" "COMMITS=@$outdir/commits.txt" "AGENT_MD=@$VLOOP_DIR/AGENT.md"
+    "PROGRESS=@$outdir/progress.tail" "COMMITS=@$outdir/commits.txt" "AGENT_MD=@$VLOOP_DIR/AGENT.md" \
+    "DIVERGENCE=@$outdir/divergence.txt"
   log "harvest: invoking harvester (learning extraction)"
   rm -f "$VLOOP_DIR/verdict.json"
   "$ADAPTER" invoke harvester "$outdir/prompt.md" "$outdir"
@@ -756,6 +853,7 @@ while :; do
     implement) do_implement ;;
     accept)    do_accept ;;
     hunt)      do_hunt ;;
+    redteam)   do_redteam ;;
     deslop)    do_deslop ;;
     harvest)   do_harvest ;;
     replan)    do_replan ;;

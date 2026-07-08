@@ -221,11 +221,12 @@
 | cleaner | hunt 后每里程碑一次 | 写 | deslop;回归门失败整体丢弃,永不阻塞里程碑 |
 | summarizer | 每次 escalate | 只读 | AWAITING_HUMAN.md 的运行摘要(防 comprehension rot;便宜模型) |
 | dispatcher | 每次 replan 后 | 只写 plan.md | 重打 `[agent:]` 标签;去标签 diff 校验,越权即恢复原计划 |
-| harvester | deslop 后每里程碑一次 | 只写 .vloop 知识文件 | 学习收割进 AGENT.md + learnings.md(知识跨 run 复利);碰仓库代码即丢弃 |
+| harvester | deslop 后每里程碑一次 | 只写 .vloop 知识文件 | 学习收割进 AGENT.md + learnings.md(知识跨 run 复利)+ 分歧点分析([divergence] 规则);碰仓库代码即丢弃 |
+| redteam | hunt 后每里程碑 | 只读 | 对抗性猎门绕过;被利用(需 file:line 证据)→ replan 且修后复查;理论性 → 人类 advisory |
 | holdout | 每轮验收开头 | 只写 .vloop/holdout 隔离区 | 每轮新生成 executor 从未见过的黑盒验收测试;run.sh 非零退出**结构性**否决里程碑,judge 意见无权推翻 |
 | merger | 预留 | — | 并行 L1 的合并者(Gas Town 模式);单线编排器忽略 |
 
-全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → deslop → harvest → summarize → human`。
+全开流水线:`vet → [tester→executor]×N → qa → judge → hunt → redteam → deslop → harvest → summarize → human`。
 设计约束:每个角色的越权行为都有**结构性**检查(hash / 去标签 diff / clean_tree 回滚),不靠提示词自觉。
 
 ## 10. Skill 交付形态
