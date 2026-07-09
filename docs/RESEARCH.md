@@ -108,3 +108,25 @@
 生态仍未解决真正的 integrator:ralphex worktree 模式假设计划互不相交;Composio 的最佳先例是**冲突路由回 owning lane 带上下文重跑**;multi-agent-ralph-loop 靠文件所有权分区回避合并。mutation/property-based 验收门无人做 —— 对 vloop 是差异化机会而非补课。
 
 来源:github.com/umputun/ralphex · github/spec-kit workflows.md · gregorydickson/pickle-rick-claude · vercel-labs/ralph-loop-agent · mj-meyer/choo-choo-ralph · steve-yegge.medium.com (Gas Town / Wasteland) · code.claude.com/docs/en/goal · ona.com/stories/auto-approving-low-risk-prs · oak.space · arXiv 2606.07379 / 2606.26300 / 2606.08960 · github.com/gintasz/neuralyzer
+
+---
+
+# 增量调研:2026-07-09 Codex 侧 loop 原语(Daniel Vaughan 实践文 × 本机验证)
+
+来源:codex.danielvaughan.com《Loop Engineering with Codex CLI》(2026-06-11)。**逐项本机验证(codex-cli 0.142.3),文章宣称 ≠ 事实,差异如下:**
+
+| 文章宣称 | 本机 0.142.3 验证 | 结论 |
+|---|---|---|
+| `.codex/agents/*.toml` 原生 subagents(name/description/model/effort/sandbox_mode;max_threads=6,max_depth=1 防递归) | ✓ **真实存在**(本机已有 analyst/architect/code-reviewer 定义,oh-my-codex 安装) | 可用。codex 单 agent 分层配方可升级为原生 subagent maker-verifier |
+| `codex --goal "..."` goal mode(config: check_model 独立验证模型/max_turns/timeout_minutes) | ✗ `unexpected argument`(连隐藏 flag 都不是) | 本版本不存在;可能是新版/实验通道或与 claude /goal 混淆。**用前必探测** |
+| `codex --worktree <name>` | ✗ 同上 | 同上 |
+| `.codex/automations/*.toml`(cron + memory 持久字段) | 本机无目录,无法证实 | 待版本验证 |
+| `[hooks.post_tool_use]` + `max_diff_lines` 门 | 未验证 | 思想同 vloop auto_approve 的 diff-size 维度 |
+
+**可吸收的思想(与版本无关):**
+- **maker-verifier 用不同模型**(o3 评 o4-mini)= vloop tiered 配方,互相印证。
+- **三风险命名**(verification weakness / comprehension debt / cognitive surrender)= loopengineering.run 四风险变体;新缓解招:**rotating reviewer(轮换评审人)**防 cognitive surrender —— vloop 可选做法:judge backend 按里程碑轮换(pool 里配多个 judge 预设,人在 L3 换)。
+- **memory 字段跨调度周期持久**(automations 的核心)= vloop learnings.md/AGENT.md 已覆盖;"State as mechanism" 提法好。
+- 成熟度栈:prompt → context → loop engineering,与 Osmani/loopengineering.run 口径一致。
+
+**教训重申(写给 adapters.md):博客宣称的 flag 必须 `--flag` 缺参探测后才可写进适配层 —— 本文 4 项宣称 2 项在当前版本不存在。**
