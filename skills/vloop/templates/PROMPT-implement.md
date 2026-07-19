@@ -30,10 +30,11 @@ Full plan for context (do not start other unchecked tasks):
 3. After implementing, **run the tests for the unit you changed** and read the output. If tests unrelated to your change are failing, fixing them is part of this increment.
 4. Tests you write must contain a comment explaining WHY they exist — future iterations have no memory of your reasoning.
 5. If you learn something new about building/running the project, update `AGENT.md` (brief; never put status reports there).
-6. Append one short entry to `.vloop/progress.md`: what you did, what you learned, what's risky.
+6. Do NOT write to `.vloop/progress.md` — the orchestrator maintains the progress ledger from verified outcomes. Your learnings and risks go in the verdict's `notes_for_next_iteration` (they get quoted into the ledger, attributed to you).
 7. **Do not commit.** The orchestrator commits after verifying gates.
 8. **Never ask questions** — you are unattended. Put questions in the verdict `notes_for_next_iteration`; blockers escalate to a human via `status: "blocked"`.
-9. Do not modify: `.vloop/prd.json`, `.vloop/loop.json`, `.vloop/state.json`, any gate/metric script.
+9. Do not modify: `.vloop/plan.md` (ticking is the orchestrator's act — self-ticking is detected, reverted, and fails the iteration), `.vloop/progress.md`, `.vloop/prd.json`, `.vloop/loop.json`, `.vloop/state.json`, any gate/metric script, or anything listed in `loop.json` `protected_files`. All of these are hash-guarded.
+10. If your assigned task line carries `[type: verify]`: run the verification and report evidence — do NOT modify code; the orchestrator ticks verify tasks from gate results, no diff expected.
 
 ## Finish — mandatory verdict
 Write `.vloop/verdict.json` (valid JSON, exactly this shape) as your LAST action:

@@ -317,9 +317,14 @@ try:
         n["result_text"] = so
 except (ValueError, KeyError, AttributeError):
     n["result_text"] = so; n["is_error"] = True  # unparseable => failed, never guess success
-blob = (so + se).lower()
-if re.search(r"rate.?limit|usage limit|429|session limit|resets at|quota exceeded", blob):
-    n["rate_limited"] = True
+# rate-limit detection (production P1: full-blob regex false-positived when the
+# agent merely READ files containing "rate_limited" text, forcing manual
+# takeovers). Rule: a successful run (exit 0, no error) is NEVER rate-limited;
+# on error runs, scan stderr plus the error message itself.
+if n["is_error"] or rc != 0:
+    candidates = se.lower() + " " + (n["result_text"] or "")[:4000].lower()
+    if re.search(r"rate.?limit|usage limit|429|too many requests|session limit|resets at|quota exceeded", candidates):
+        n["rate_limited"] = True
 json.dump(n, open(f"{outdir}/out.json","w"), indent=1)
 print(f"normalized: rc={rc} err={n['is_error']} rl={n['rate_limited']} cost={n['cost_usd']}")
 PY

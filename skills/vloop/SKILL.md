@@ -36,7 +36,8 @@ L1 executes one task per fresh-context iteration → L2 judges against acceptanc
 
 ## Hard rules (structural, not stylistic)
 
-- **Ratchets are one-way and owned**: only the orchestrator flips `prd.json` `passes:true`, and only on a judge verdict. The executor never edits prd.json. No commit unless all gates pass.
+- **Ratchets are one-way and owned**: only the orchestrator flips `prd.json` `passes:true`, and only on a judge verdict whose criteria FULLY cover the PRD's criteria for that story (empty/partial verdicts are defects, never passes). The executor never edits prd.json. No commit unless all gates pass.
+- **Control files are hash-guarded**: plan.md / prd.json / loop.json / progress.md plus `protected_files[]` are snapshotted around every write-capable agent call — modifications are reverted and fail the iteration. progress.md is written by the orchestrator from verified outcomes only; ticking is exclusively the orchestrator's act. Run dirs are round-qualified (`runs/r<round>-iter-<n>`) so replans never overwrite forensics. Task classes: change/research must land a diff; `[type: verify]` tasks tick from gate results with no diff.
 - **Judge ≠ executor**: different backend, physically read-only mode. Never let the implementer grade its own work.
 - **Every layer capped**: max_iterations, max_redesign_rounds (default 3), budget_usd, iteration timeout. A missing cap is a config error — refuse to start.
 - **Verdict protocol**: agent writes `.vloop/verdict.json` each iteration; missing/invalid verdict = failed iteration, not "continue".

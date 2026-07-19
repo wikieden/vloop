@@ -48,6 +48,8 @@
     "_comment": "executable milestone-level verifiers run at L2 alongside the LLM judge; exit code decides and a judge pass NEVER outranks a failing check. Unlike gates (per-iteration, fast), these run once per acceptance round (can be slow: e2e, smoke deploys).",
     "_example": [ { "name": "e2e", "cmd": "npm run test:e2e" } ]
   },
+  "protected_files": [],
+  "_protected_files_comment": "repo paths (e.g. metric/gate scripts) hash-checked around every write-capable agent invocation; any modification reverts control files and fails the iteration. .vloop control files (plan/prd/loop/progress) are always guarded regardless.",
   "resume_strategy": "fresh",
   "notify": { "type": "none", "target": "" },
   "_optional_roles_reference": {

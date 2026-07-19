@@ -155,7 +155,43 @@ escalate() { # escalate <reason> [report_file]
 
 clean_tree() { git checkout -- . 2>/dev/null; git clean -fd -e .vloop >/dev/null 2>&1; }
 
-progress_hash() { { git rev-parse HEAD; git status --porcelain; } | shasum | cut -d' ' -f1; }
+# plan.md included: verify-type tasks tick the plan without a commit — that IS
+# progress and must not trip the no-progress breaker
+progress_hash() { { git rev-parse HEAD; git status --porcelain; cat "$VLOOP_DIR/plan.md" 2>/dev/null; } | shasum | cut -d' ' -f1; }
+
+# ---- control-file guard (first-production-run P0: executors manufactured
+# completion state by editing plan.md/progress.md; protected_files was
+# declaration-only). Snapshot before an agent runs, revert + fail after.
+CTRL_FILES_DEFAULT="plan.md prd.json loop.json progress.md"
+ctrl_guard_pre() { # ctrl_guard_pre "<space-separated .vloop files>"
+  rm -rf "$VLOOP_DIR/.guard"; mkdir -p "$VLOOP_DIR/.guard"
+  printf '%s' "$1" > "$VLOOP_DIR/.guard/set"
+  for f in $1; do
+    [ -f "$VLOOP_DIR/$f" ] && cp "$VLOOP_DIR/$f" "$VLOOP_DIR/.guard/$f"
+  done
+  jq -r '.protected_files[]? // empty' "$CONFIG" 2>/dev/null | while read -r pf; do
+    [ -f "$pf" ] && shasum "$pf"
+  done > "$VLOOP_DIR/.guard/protected.sha"
+  return 0
+}
+ctrl_guard_post() { # ctrl_guard_post <who> [nofeedback] ; reverts control files; 1 = violation
+  viol=""
+  for f in $(cat "$VLOOP_DIR/.guard/set" 2>/dev/null); do
+    if [ -f "$VLOOP_DIR/.guard/$f" ]; then
+      cmp -s "$VLOOP_DIR/.guard/$f" "$VLOOP_DIR/$f" 2>/dev/null \
+        || { cp "$VLOOP_DIR/.guard/$f" "$VLOOP_DIR/$f"; viol="$viol .vloop/$f"; }
+    elif [ -f "$VLOOP_DIR/$f" ]; then
+      rm -f "$VLOOP_DIR/$f"; viol="$viol .vloop/$f(created)"
+    fi
+  done
+  if [ -s "$VLOOP_DIR/.guard/protected.sha" ] && ! shasum -c "$VLOOP_DIR/.guard/protected.sha" >/dev/null 2>&1; then
+    viol="$viol protected_files"
+  fi
+  [ -z "$viol" ] && return 0
+  log "guard: $1 modified protected files ($viol) — control files reverted"
+  [ "${2:-}" = "nofeedback" ] || echo "PROTECTED FILE VIOLATION: you modified$viol — these files are orchestrator/human-owned (ticking, progress, contracts). Changes were reverted and this iteration FAILS. Never touch them." > "$VLOOP_DIR/runs/gate-feedback.txt"
+  return 1
+}
 
 KNOWN_BACKENDS="claude codex opencode gemini aider copilot cursor-agent droid amp qwen goose kiro-cli"
 
@@ -289,7 +325,10 @@ for line in lines:
     m = re.match(r'^- \[ \] (T\S+?):', line)
     if m:
         am = re.search(r'\[agent:\s*([a-zA-Z0-9_-]+)\]', line)
-        print(json.dumps({"id": m.group(1), "line": line.strip(), "agent": am.group(1) if am else None}))
+        tm = re.search(r'\[type:\s*(change|verify|research)\]', line)
+        print(json.dumps({"id": m.group(1), "line": line.strip(),
+                          "agent": am.group(1) if am else None,
+                          "type": tm.group(1) if tm else "change"}))
         break
 else:
     print(json.dumps({}))
@@ -318,13 +357,17 @@ do_implement() {
     [ "$tok" -gt "$mtk" ] && { escalate "token budget exhausted ($tok > $mtk tokens)"; return; }
   fi
 
-  outdir="$VLOOP_DIR/runs/iter-$it"; mkdir -p "$outdir"
+  # round-qualified run dirs: replan resets iteration but must never overwrite
+  # earlier rounds' forensics (production P0: r2 iter-0 clobbered r1 iter-0)
+  rd=$(sget '.round')
+  outdir="$VLOOP_DIR/runs/r$rd-iter-$it"; mkdir -p "$outdir"
   [ -n "$(git status --porcelain)" ] && { log "dirty tree from failed iteration — rolling back"; clean_tree; }
 
   task_json=$(pick_task)
   task_id=$(printf '%s' "$task_json" | jq -r '.id // empty')
   task_line=$(printf '%s' "$task_json" | jq -r '.line // empty')
   task_agent=$(printf '%s' "$task_json" | jq -r '.agent // empty')
+  task_type=$(printf '%s' "$task_json" | jq -r '.type // "change"')
   if [ -z "$task_id" ]; then
     if grep -q '^- \[x\]' "$VLOOP_DIR/plan.md" 2>/dev/null; then
       log "plan.md fully complete -> L2 acceptance"; sset '.phase="accept"'; return
@@ -340,6 +383,9 @@ do_implement() {
       log "iter $it: $task_id assigned to agent tag '$task_agent'"
     fi
   fi
+
+  # control files snapshotted BEFORE any agent (tester or executor) runs
+  ctrl_guard_pre "$CTRL_FILES_DEFAULT"
 
   # optional TDD split: a separate test engineer writes RED tests the executor
   # must then make green — and may not modify (structural anti-self-grading)
@@ -388,9 +434,15 @@ do_implement() {
   verdict_status=$(jq -r 'if (.status? | IN("done","continue","blocked")) then .status else "INVALID" end' "$VLOOP_DIR/verdict.json" 2>/dev/null || echo "INVALID")
   reported_id=$(jq -r '.task_id // "?"' "$VLOOP_DIR/verdict.json" 2>/dev/null || echo "?")
 
+  # control-file guard verdict: revert + fail on any protected-file edit
+  guard_viol=false
+  ctrl_guard_post "executor/tester (r$rd.i$it, $task_id)" || guard_viol=true
+
   gates_green=true
   if [ "$verdict_status" = "INVALID" ]; then
     gates_green=false; echo "verdict.json missing or invalid — you MUST write it as your last action" > "$VLOOP_DIR/runs/gate-feedback.txt"
+  elif [ "$guard_viol" = "true" ]; then
+    gates_green=false  # feedback already written by ctrl_guard_post
   elif [ "$reported_id" != "$task_id" ]; then
     gates_green=false
     echo "you were assigned $task_id but verdict.task_id was '$reported_id' — work ONLY on the assigned task" > "$VLOOP_DIR/runs/gate-feedback.txt"
@@ -403,13 +455,27 @@ do_implement() {
     run_gates "$outdir" || gates_green=false
   fi
 
-  if [ "$gates_green" = "true" ] && [ -n "$(git status --porcelain)" ]; then
-    agent_note=""; [ -n "$task_agent" ] && agent_note=" via $task_agent"
-    git add -A && git commit -q -m "vloop(${task_id}): iter $it green${agent_note}" \
-      && log "iter $it: committed (ratchet)"
-    # orchestrator (not the agent) ticks the plan checkbox
-    [ "$task_id" != "?" ] && sed -i.bak "s/^- \[ \] ${task_id}:/- [x] ${task_id}:/" "$VLOOP_DIR/plan.md" 2>/dev/null && rm -f "$VLOOP_DIR/plan.md.bak"
-  elif [ "$gates_green" != "true" ]; then
+  committed=false; ticked=false
+  if [ "$gates_green" = "true" ]; then
+    if [ -n "$(git status --porcelain)" ]; then
+      agent_note=""; [ -n "$task_agent" ] && agent_note=" via $task_agent"
+      git add -A && git commit -q -m "vloop(${task_id}): r$rd.i$it green${agent_note}" \
+        && { committed=true; log "iter $it: committed (ratchet)"; }
+    fi
+    # task classes (production P0: verify-only tasks either stalled or invited
+    # executors to tick their own boxes): change/research must land a diff;
+    # verify needs none — but ticking is ALWAYS the orchestrator's act
+    case "$task_type" in
+      verify) ticked=true ;;
+      *) [ "$committed" = "true" ] && ticked=true ;;
+    esac
+    if [ "$ticked" = "true" ]; then
+      [ "$task_id" != "?" ] && sed -i.bak "s/^- \[ \] ${task_id}:/- [x] ${task_id}:/" "$VLOOP_DIR/plan.md" 2>/dev/null && rm -f "$VLOOP_DIR/plan.md.bak"
+    else
+      echo "task $task_id is type '$task_type' but produced NO repo changes — change/research tasks must land a diff. If this task is pure verification, the planner should tag it [type: verify]." > "$VLOOP_DIR/runs/gate-feedback.txt"
+      log "iter $it: gates green but no diff for $task_type task — not ticked"
+    fi
+  else
     log "iter $it: gates failed — rolling back working tree (fix-forward contaminates)"
     clean_tree
   fi
@@ -418,7 +484,13 @@ do_implement() {
   # snapshot claim vs evidence so harvest can locate divergence points later
   cp "$VLOOP_DIR/verdict.json" "$outdir/verdict.json" 2>/dev/null
   [ "$gates_green" != "true" ] && cp "$VLOOP_DIR/runs/gate-feedback.txt" "$outdir/gate-feedback.txt" 2>/dev/null
-  echo "verdict=$verdict_status task=$task_id gates_green=$gates_green agent=${task_agent:-default}" > "$outdir/outcome.txt"
+  echo "verdict=$verdict_status task=$task_id type=$task_type gates_green=$gates_green ticked=$ticked agent=${task_agent:-default}" > "$outdir/outcome.txt"
+
+  # progress ledger is ORCHESTRATOR-owned (production P0: executor-written
+  # progress left "done" claims on failed iterations). Executor learnings
+  # arrive via verdict.notes and get quoted here, clearly attributed.
+  notes=$(jq -r '.notes_for_next_iteration // ""' "$VLOOP_DIR/verdict.json" 2>/dev/null | tr '\n' ' ' | head -c 160)
+  echo "r$rd.i$it $task_id[$task_type]: gates=$([ "$gates_green" = "true" ] && echo green || echo FAILED) ticked=$ticked verdict=$verdict_status${notes:+ | agent notes: $notes}" >> "$VLOOP_DIR/progress.md"
 
   # circuit breaker
   h=$(progress_hash); last=$(sget '.last_hash')
@@ -444,7 +516,7 @@ do_implement() {
     blocker=$(jq -r '.notes_for_next_iteration // ""' "$VLOOP_DIR/verdict.json" 2>/dev/null)
     # one oracle consult per task before interrupting the human
     if role_on oracle && [ "$(sget '.oracle_task')" != "$task_id" ]; then
-      odir="$VLOOP_DIR/runs/oracle-$it"; mkdir -p "$odir"
+      odir="$VLOOP_DIR/runs/r$rd-oracle-$it"; mkdir -p "$odir"
       printf '%s\n' "$blocker" > "$odir/question.txt"
       render "$TPL_DIR/PROMPT-oracle.md" "$odir/prompt.md" \
         "TASK_LINE=$task_line" "QUESTION=@$odir/question.txt" "PLAN=@$VLOOP_DIR/plan.md" "AGENT_MD=@$VLOOP_DIR/AGENT.md"
@@ -487,8 +559,10 @@ do_accept() {
       "PRD=@$VLOOP_DIR/prd.json" "AGENT_MD=@$VLOOP_DIR/AGENT.md" "ROUND=$r"
     log "L2: invoking QA runner (evidence collection)"
     rm -f "$VLOOP_DIR/verdict.json"
+    ctrl_guard_pre "$CTRL_FILES_DEFAULT"
     "$ADAPTER" invoke qa "$qadir/prompt.md" "$qadir"
     ledger_add "$qadir"
+    ctrl_guard_post "qa" nofeedback || log "qa: control files reverted (evidence-only role)"
     [ -f "$VLOOP_DIR/runs/qa-evidence.md" ] || jq -r '.result_text // "(qa runner produced no evidence)"' "$qadir/out.json" > "$VLOOP_DIR/runs/qa-evidence.md" 2>/dev/null
     # qa must not leave the tree dirty — evidence lives in .vloop, code changes get discarded
     [ -n "$(git status --porcelain)" ] && { log "qa runner left code changes — discarding (qa is evidence-only)"; clean_tree; }
@@ -536,7 +610,7 @@ do_accept() {
 
   base=$(sget '.base_commit')
   { git diff --stat "$base..HEAD"; echo; git diff "$base..HEAD" | head -c 120000; } > "$outdir/diff.txt" 2>/dev/null
-  ls "$VLOOP_DIR"/runs/iter-*/gate-*.log 2>/dev/null | tail -5 | while read -r f; do echo "== $f =="; tail -20 "$f"; done > "$outdir/gates.txt"
+  ls -t "$VLOOP_DIR"/runs/r*-iter-*/gate-*.log 2>/dev/null | head -5 | while read -r f; do echo "== $f =="; tail -20 "$f"; done > "$outdir/gates.txt"
   render "$TPL_DIR/PROMPT-judge.md" "$outdir/prompt.md" \
     "PRD=@$VLOOP_DIR/prd.json" "DIFF_STAT=@$outdir/diff.txt" "GATE_LOGS=@$outdir/gates.txt" \
     "QA_EVIDENCE=@$VLOOP_DIR/runs/qa-evidence.md"
@@ -555,17 +629,38 @@ do_accept() {
 
   if [ "$structural_fail" = "false" ]; then
     # ratchet: ONLY here does passes flip to true — judge sign-off AND structural
-    # evidence green. A judge pass never outranks failing executable checks.
+    # evidence green. STRICT schema (production P0: all([])==True let empty or
+    # partial verdicts ratchet): a story ratchets only when the verdict covers
+    # EVERY PRD criterion id for it and every one passes.
     PRD="$VLOOP_DIR/prd.json" ACC="$VLOOP_DIR/acceptance.json" python3 - <<'PY'
 import json, os
 prd_p = os.environ["PRD"]
 prd, acc = json.load(open(prd_p)), json.load(open(os.environ["ACC"]))
-ok = {s["story_id"] for s in acc.get("stories",[]) if s.get("overall")=="pass" and all(c.get("pass") for c in s.get("criteria",[]))}
+verdicts = {s.get("story_id"): s for s in acc.get("stories", []) if isinstance(s, dict)}
+prd_ids = {s["id"] for s in prd["stories"]}
+defects = [f"verdict references unknown story '{sid}'" for sid in verdicts if sid not in prd_ids]
+ok = set()
+for s in prd["stories"]:
+    v = verdicts.get(s["id"])
+    if not v or v.get("overall") != "pass":
+        continue
+    required = {c["id"] for c in s.get("acceptanceCriteria", []) if isinstance(c, dict) and "id" in c}
+    judged = {c.get("id"): bool(c.get("pass")) for c in v.get("criteria", []) if isinstance(c, dict)}
+    if not required:
+        defects.append(f"story '{s['id']}': PRD has no acceptance criteria — cannot ratchet")
+        continue
+    missing = required - set(judged)
+    if missing:
+        defects.append(f"story '{s['id']}': verdict covers {len(required)-len(missing)}/{len(required)} criteria (missing: {', '.join(sorted(missing))}) — pass REJECTED")
+        continue
+    if all(judged[c] for c in required):
+        ok.add(s["id"])
 for s in prd["stories"]:
     if s["id"] in ok: s["passes"] = True
 tmp = prd_p + ".tmp"
-json.dump(prd, open(tmp,"w"), indent=1); os.replace(tmp, prd_p)
+json.dump(prd, open(tmp, "w"), indent=1); os.replace(tmp, prd_p)
 failed = [s["id"] for s in prd["stories"] if not s["passes"]]
+for d in defects: print("VERDICT DEFECT: " + d)
 print("PASSED" if not failed else "FAILED:" + ",".join(failed))
 PY
 
@@ -653,6 +748,8 @@ do_replan() {
     "OLD_PLAN=@$outdir/old-plan.md" "PROGRESS_TAIL=@$outdir/progress.tail" "ROUND=$(sget '.redesign_rounds')"
 
   log "L2: invoking planner (replan)"
+  # planner legitimately rewrites plan.md — guard only the contracts
+  ctrl_guard_pre "prd.json loop.json progress.md"
   "$ADAPTER" invoke planner "$outdir/prompt.md" "$outdir"
   ledger_add "$outdir"
 
@@ -685,6 +782,7 @@ print('yes' if strip('$ddir/plan.before') == strip('$VLOOP_DIR/plan.md') else 'n
     [ -n "$(git status --porcelain)" ] && clean_tree
   fi
 
+  ctrl_guard_post "planner/dispatcher" nofeedback || log "replan: contract files reverted (plan-only roles)"
   sset '.phase="implement" | .iteration=0 | .round += 1 | .no_progress=0 | .same_error=0 | .last_hash="" | .resume_used=false'
 }
 
@@ -750,8 +848,13 @@ do_deslop() {
     "PLAN=@$VLOOP_DIR/plan.md" "AGENT_MD=@$VLOOP_DIR/AGENT.md"
   log "deslop: invoking cleaner"
   rm -f "$VLOOP_DIR/verdict.json"
+  ctrl_guard_pre "$CTRL_FILES_DEFAULT"
   "$ADAPTER" invoke cleaner "$outdir/prompt.md" "$outdir"
   ledger_add "$outdir"
+  if ! ctrl_guard_post "cleaner" nofeedback; then
+    log "deslop: control-file violation — entire cleanup discarded"
+    clean_tree
+  fi
   sset '.deslop_done = true'
   if [ -n "$(git status --porcelain)" ]; then
     if run_gates "$outdir"; then
@@ -819,7 +922,7 @@ do_harvest() {
   # success but the gates disagreed — exactly where judgment split from intent,
   # i.e. which prompt/rule to fix
   : > "$outdir/divergence.txt"
-  for d in "$VLOOP_DIR"/runs/iter-*/; do
+  for d in "$VLOOP_DIR"/runs/r*-iter-*/; do
     [ -f "$d/outcome.txt" ] || continue
     if grep -q "gates_green=false" "$d/outcome.txt" && grep -qE "verdict=(continue|done)" "$d/outcome.txt"; then
       { echo "== $(basename "$d"): executor claimed success, evidence disagreed =="
@@ -833,8 +936,11 @@ do_harvest() {
     "DIVERGENCE=@$outdir/divergence.txt"
   log "harvest: invoking harvester (learning extraction)"
   rm -f "$VLOOP_DIR/verdict.json"
+  # harvester legitimately writes AGENT.md + learnings.md — guard the rest
+  ctrl_guard_pre "plan.md prd.json loop.json progress.md"
   "$ADAPTER" invoke harvester "$outdir/prompt.md" "$outdir"
   ledger_add "$outdir"
+  ctrl_guard_post "harvester" nofeedback || log "harvest: control files reverted (knowledge files only)"
   # harvester may only touch .vloop knowledge files (AGENT.md / learnings.md) —
   # any repo change is discarded, learning extraction never alters the product
   [ -n "$(git status --porcelain)" ] && { log "harvest left repo changes — discarding (knowledge files only)"; clean_tree; }

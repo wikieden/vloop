@@ -27,6 +27,10 @@ Run through this before the first L1 iteration. Every item traces to an observed
 - Placeholder bias: "the reward function is compiling code" → anti-placeholder prompt rules + a dedicated placeholder-hunt task when plan empties.
 - State-file pollution: status reports leaking into AGENT.md; plan.md growing stale → prune completed items; when the plan goes off the rails, delete and regenerate it (planning loop), don't patch it.
 - Two loops in one workspace conflict on state → `.vloop/state.json` records worktree path; refuse to start if another active state exists for the same worktree.
+- Executors WILL manufacture completion state if allowed (production run: "log said done, file didn't exist"; a verify task self-ticked into L2) → progress.md and plan.md are orchestrator-owned and hash-guarded; verdicts are claims, ledger lines come from verified outcomes only.
+- Lazy judge verdicts pass stories if the ratchet trusts them: `all([])` is True, and partial criteria coverage looks like full passing → require verdict criteria ⊇ PRD criteria per story before ratcheting.
+- Replan resets counters — run artifacts must be round-qualified or later rounds silently overwrite earlier forensics.
+- Rate-limit text an agent merely READ (state files, docs) must never trip the limit detector — only error runs (non-zero exit / is_error) are scanned, stderr first.
 - Compaction/restart recovery: trust progress.md + git log over memory; never re-dispatch tasks whose commits exist (most expensive observed failure class).
 - Questions in unattended mode: prompts must forbid clarifying questions; agent puts questions in verdict.notes → escalates to L3. Interactive tools (AskUserQuestion) don't exist in `-p` mode — deadlock otherwise. Same for Playwright without a TTY: use headless flags.
 
